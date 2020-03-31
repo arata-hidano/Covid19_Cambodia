@@ -309,6 +309,14 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho=c(rep(0.4,4),rep(0.8,12)), R0tpos
   subclinical[1,] = 0;
   time[1] = 0;
   
+  # Create dummy state variables for a deterministic formulation to cross-compare
+  FA_det = BED_det = ICU_det = Z_det = cum_Ic = cum_FA = cum_BED = cum_ICU = array(0,c(numSteps,length(pop$p_age)))
+  FA_det[1,] = 0
+  BED_det[1,] = 0
+  ICU_det[1,] = 0
+  Z_det[1,] = 0
+  cum_Ic[1,] = Ic[1,]
+  cum_FA[1,] = cum_BED[1,] = cum_ICU[1,] = 0
   
   ## INTERVENTIONS 
   # School closed 2020-02-10, lockdown (intense intervention) started 2020-01-23, end of intense intervention: user-specified 
@@ -386,6 +394,21 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho=c(rep(0.4,4),rep(0.8,12)), R0tpos
     numBtoZ = rbinom(length(BED[stepIndex,]),BED[stepIndex,],zeta_B)
     numCtoZ = rbinom(length(ICU[stepIndex,]),ICU[stepIndex,],zeta_C)
    
+    # calculate cumulative number of new Ic, FA, BED, ICU
+    cum_Ic[stepIndex+1,] = cum_Ic[stepIndex,] + numEtoIc
+    cum_FA[stepIndex+1,] = cum_FA[stepIndex,] + numEtoF
+    cum_BED[stepIndex+1,] = cum_BED[stepIndex,] + numFtoB
+    cum_ICU[stepIndex+1,] = cum_ICU[stepIndex,] + numFtoC
+    
+    # For a deterministic formulation to cross-compare
+    numEtoF_det   = numEtoIc*delta*dt;    # E to FA
+    numFtoB_det = FA_det[stepIndex,]*theta*(1-epsilon)*dt ;
+    numFtoC_det = FA_det[stepIndex,]*theta*epsilon*dt; 
+    numBtoZ_det = BED_det[stepIndex,]*zeta_B*dt;
+    numCtoZ_det = ICU_det[stepIndex,]*zeta_C*dt;
+    
+    
+    
      # Difference equations 
     S[stepIndex+1,]   = S[stepIndex,]-numStoE;
     E[stepIndex+1,]   = E[stepIndex,]+numStoE-numEtoIc-numEtoIsc;
@@ -399,6 +422,12 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho=c(rep(0.4,4),rep(0.8,12)), R0tpos
     ICU[stepIndex+1,]   = ICU[stepIndex,]+numFtoC-numCtoZ;
     Z[stepIndex+1,]   = Z[stepIndex,]+numBtoZ+numCtoZ;
     
+    #For a deterministic model
+    FA_det[stepIndex+1,]   = FA_det[stepIndex,]+numEtoF_det-numFtoB_det-numFtoC_det;
+    BED_det[stepIndex+1,]   =BED_det[stepIndex,]+numFtoB_det-numBtoZ_det;
+    ICU_det[stepIndex+1,]   = ICU_det[stepIndex,]+numFtoC_det-numCtoZ_det;
+    Z_det[stepIndex+1,]   = Z_det[stepIndex,]+numBtoZ_det+numCtoZ_det;
+    
     incidence[stepIndex+1,] = numEtoIc/dt;
     subclinical[stepIndex+1,] = numEtoIsc/dt;
     time[stepIndex+1] = time[stepIndex]+dt;
@@ -406,6 +435,8 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho=c(rep(0.4,4),rep(0.8,12)), R0tpos
     
   }
   output = list(S = S, E = E, Ic = Ic, Isc = Isc, R = R, BED= BED, ICU=ICU,Z=Z, time = time, lambda=lambda,
+                BED_det= BED_det, ICU_det=ICU_det,
+                cum_Ic = cum_Ic, cum_FA = cum_FA, cum_BED = cum_BED, cum_ICU = cum_ICU,
                 incidence = incidence, N_age= N_age, subclinical = subclinical, 
                 R0t = R0t,#rho = rho,
                 dateStart = dateStart, dateEnd = dateEnd,
