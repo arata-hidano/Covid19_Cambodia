@@ -1,0 +1,163 @@
+---
+title: "Validation of Resource model adds on to Prem et al COVID19 model"
+author: "Arata Hidano"
+date: "02/04/2020"
+output: html_document
+---
+
+Setup reading source files, make sure you run this with appropriate path to the folder with data/codes
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = getwd())
+require(ggplot2)
+require(patchwork)
+# load relevant the data files
+source('1_loadData.r')
+
+# source the age-structured SEIcIscR model functions 
+source('function_modelSEIcIscRBCZ_validation.r')
+
+
+# simulate N oubtreaks
+source('2_simOutbreak_ncov_SEIcIscRBCZ.r')
+
+```
+
+##### Validation 1: Deterministic resource model
+
+##### 1. Baseline deterministic model results for Wuhan population
+##### 2. Impact of different R0 on the largest number of ICU required on a given day
+
+```{r, echo=FALSE,message=F}
+# Show only deterministic model results
+X=epi_doNothingDurInf3[[1]]$time
+
+ICU_det <- ggplot()+
+  ggtitle("(1) Number of required ICU over time")+
+  labs(x="Time(days)", y="Number of ICU")+theme_bw()
+
+ICU_peak_R0 <- ggplot()+
+  ggtitle("(2) The peak number of ICU required across sampled R0 value")+
+  labs(x="R0", y="Number of peak ICU")+theme_bw()
+for(i in 1:nsim)
+{
+  sum_ICU_det <- rowSums(epi_doNothingDurInf3[[i]]$ICU_det)
+  R0 <- epi_doNothingDurInf3[[i]]$R0t
+  peak <- max(rowSums(epi_doNothingDurInf3[[i]]$ICU_det))
+  #sum_ICU_stochastic <- rowSums(epi_doNothingDurInf3[[i]]$ICU)
+  ICU_det <- ICU_det + geom_line(aes_string(x=X, y=sum_ICU_det),color="steelblue",size=1,alpha=0.5)
+    # geom_line(aes_string(x=X, y=sum_ICU_stochastic),color="red",size=1,alpha=0.5)
+  ICU_peak_R0 <- ICU_peak_R0 + geom_point(aes_string(x=R0, y=peak),color="black",size=1)
+}
+v1<-ICU_det+ICU_peak_R0
+v1
+ggsave("Validation_1.png",v1)
+
+
+```
+
+##### Validation 2: Stochastic resource model compared to deterministic model
+
+##### 3. Number of required ICU over time
+##### 4. Number of required Bed over time
+
+```{r, echo=FALSE,warning=F,message=F}
+# Compare Deterministic and stochastic model
+# ICU
+sum_ICU_det <- rowSums(epi_doNothingDurInf3[[1]]$ICU_det)
+X=epi_doNothingDurInf3[[1]]$time
+
+ICU_comparison <- ggplot()+geom_line(aes_string(x=X, y=sum_ICU_det),color="black",size=1.5)+
+  ggtitle("(3) Number of required ICU over time")+
+  labs(x="Time(days)", y="Number of ICU")+theme_bw()
+
+
+for(i in 1:nsim)
+{
+  sum_ICU_stochastic <- rowSums(epi_doNothingDurInf3[[i]]$ICU)
+  ICU_comparison <- ICU_comparison + geom_line(aes_string(x=X, y=sum_ICU_stochastic),color="steelblue",size=0.5,alpha=0.5)
+  
+}
+
+
+#BED
+sum_BED_det <- rowSums(epi_doNothingDurInf3[[1]]$BED_det)
+X=epi_doNothingDurInf3[[1]]$time
+
+BED_comparison <- ggplot()+geom_line(aes_string(x=X, y=sum_BED_det),color="black",size=1.5)+
+  ggtitle("(4) Number of required BED over time")+
+  labs(x="Time(days)", y="Number of BED")+theme_bw()
+
+
+for(i in 1:nsim)
+{
+  sum_BED_stochastic <- rowSums(epi_doNothingDurInf3[[i]]$BED)
+  BED_comparison <- BED_comparison + geom_line(aes_string(x=X, y=sum_BED_stochastic),color="steelblue",size=0.5,alpha=0.5)
+  
+}
+v2<-ICU_comparison+BED_comparison
+v2
+ggsave("Validation_2.png",v2)
+# Note that they're showing only one deterministic model result (shown in black line) with a specific R0
+```
+
+##### Validation 3: Stochastic model results compared to pre-defined parameters
+
+##### 5. Impact of different stochastic formulation. 
+
+Output of the deterministic mode needs to be forced into integers, either by taking floor (red), round (black), or
+ceiling (blue). This shows the impact is minimal, however, we chose round function to minimise the artefact overestimation. 
+```{r}
+# Check cumulative number of FA, BED, ICU against that of Ic
+# Retrieve parameters
+durDelay = 7;                                                 # Median time from symptom onset to hospital admission Wang et al 2020
+delta = 0.2;                                                       # proportion of clinical cases that develop severe signs
+theta = 1-exp(-1/durDelay);                                       # Probability of hospital admission after symptom onset
+epsilon = 0.26 
+```
+
+```{r,echo=F,warning=F,message=F}
+# Proportion of severe cases among clinical cases observed in the model over time against the 'true' value
+X=epi_doNothingDurInf3[[1]]$time
+
+cum_Ic_FA_all <- ggplot()+geom_hline(aes(yintercept = delta),color="black",size=0.5)+
+  ggtitle("(5) Propotion of severe cases \n among clinical cases over time")+
+  labs(x="Time(days)", y="Proportion")+theme_bw()
+
+for(i in 1:nsim)
+{
+  sum_Ic_stochastic <- rowSums(epi_doNothingDurInf3[[i]]$cum_Ic)
+  sum_FA_stochastic <- rowSums(epi_doNothingDurInf3[[i]]$cum_FA)
+  sum_FA_stochastic_f <- rowSums(epi_doNothingDurInf3[[i]]$cum_FA_f)
+  sum_FA_stochastic_r <- rowSums(epi_doNothingDurInf3[[i]]$cum_FA_r)
+  prop <- sum_FA_stochastic/sum_Ic_stochastic
+  prop_f <-  sum_FA_stochastic_f/sum_Ic_stochastic
+  prop_r <-  sum_FA_stochastic_r/sum_Ic_stochastic
+  cum_Ic_FA_all <- cum_Ic_FA_all+ 
+    geom_line(aes_string(x=X, y=prop_f),color="red",size=0.5,alpha=0.5)+
+    geom_line(aes_string(x=X, y=prop),color="steelblue",size=0.5,alpha=0.5)+
+    geom_line(aes_string(x=X, y=prop_r),color="black",size=0.5,alpha=0.5)
+}
+
+# Proportion of ICU cases among severe cases observed in the model over time against the true value
+X=epi_doNothingDurInf3[[1]]$time
+
+cum_ICU_FA <- ggplot()+geom_hline(aes(yintercept = epsilon),color="black",size=0.5)+
+  ggtitle("(6) Propotion of ICU cases \n among severe cases over time")+
+  labs(x="Time(days)", y="Proportion")+theme_bw()
+
+
+for(i in 1:nsim)
+{
+  sum_ICU_stochastic <- rowSums(epi_doNothingDurInf3[[i]]$cum_ICU_r)
+  sum_FA_stochastic <- rowSums(epi_doNothingDurInf3[[i]]$cum_FA_r)
+  prop <- sum_ICU_stochastic/sum_FA_stochastic
+  cum_ICU_FA <- cum_ICU_FA + geom_line(aes_string(x=X, y=prop),color="steelblue",size=0.5)
+  
+}
+
+v3 <- cum_Ic_FA_all + cum_ICU_FA
+v3
+ggsave("Validation_3.png",v3)
+
+```
