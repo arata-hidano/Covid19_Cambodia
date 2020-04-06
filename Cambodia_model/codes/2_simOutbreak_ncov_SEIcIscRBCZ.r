@@ -1,6 +1,6 @@
 ## To simulate n_simSEIcIscR outbreaks
 
-nsim = 100
+nsim = 50
 
 set.seed(123)
 r0postCrI = r0posterior
@@ -32,7 +32,7 @@ for(sim in 1:nsim)
     epi_doNothingDurInf3[[sim]][[province]] = simulateOutbreakSEIcIscRBCZ(R0t =R0est[sim],rho ,
                                                               dateStartSchoolClosure = as.Date('2020-02-29'),
                                                               pWorkOpen = c(1,1,1,1,1),
-                                                              POP = cambodia_pop,
+                                                              cambodia_pop = cambodia_pop[[province]],
                                                               contacts_cambodia = contact_cambodia[[province]],
                                                               numWeekStagger = c(0,0,0),
                                                               pInfected=initialI,durInf = durInfSim,
@@ -40,7 +40,7 @@ for(sim in 1:nsim)
     epi_baseDurInf3[[sim]][[province]] = simulateOutbreakSEIcIscRBCZ(R0t =R0est[sim] ,rho ,
                                                          dateStartSchoolClosure = as.Date('2020-03-16'),
                                                          pWorkOpen = c(0.8,0.8,0.2,0,0.2),
-                                                         POP = cambodia_pop,
+                                                         cambodia_pop = cambodia_pop[[province]],
                                                          contacts_cambodia = contact_cambodia[[province]],
                                                          numWeekStagger = c(0,0,0),
                                                          pInfected=initialI,durInf = durInfSim,

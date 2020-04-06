@@ -99,13 +99,21 @@ getbeta = function(R0t,constraints,gamma,p_age,calculate_transmission_probabilit
   return(results)
 }
 
-
+# gamma function
+cm_delay_gamma = function(mu, shape, t_max, t_step)
+{
+  scale = mu / shape;
+  t_points = seq(0, t_max, by = t_step);
+  heights = pgamma(t_points + t_step/2, shape, scale = scale) - 
+    pgamma(pmax(0, t_points - t_step/2), shape, scale = scale);
+  return (data.table(t = t_points, p = heights / sum(heights))) # getting cumulative density at t_points
+}
 
 simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense intervention 
                                     pWorkOpen, # pWorkOpen: proportion of the work force that is working (will be time-varying)
                                     dateStartSchoolClosure = as.Date('2020-03-16') , # National school closure
                                     dateStartVoluntary = as.Date('2020-03-30'), #Intense intervention
-                                    dateStart = as.Date('2020-03-01'),POP = cambodia_pop,numWeekStagger,pInfected,durInf,contacts_cambodia=contacts_cambodia,
+                                    dateStart = as.Date('2020-03-01'),cambodia_pop = cambodia_pop,numWeekStagger,pInfected,durInf,contacts_cambodia=contacts_cambodia,
                                     x
                                     )
 {
@@ -126,20 +134,42 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense 
   # contacts_china = CONTACTS
   
   
+  # States structure
+  # S E Ip->Ic or Ia and R
+  # self-isolation reduces infectiousness by infected individuals
+  # Resource model requires the number moving from Ip to Ic as an input, feeding into F
+  # Input into F will be stochastic-integer model (just round)
+  # Individuals in F will be distributed into blocks based on the delay parameter due to the time since symptom onset to admission
+  # Those going out from F will be divided into H and B based on binomial
+  # Those coming into H and B respectively are then distributed into blocks waiting for discharge
+  
+  
+  
   # Specify epi info
-  durLat = 6.4;   	                                             # Mean latent period (days) from Backer, et al (2020)
-  durInf = durInf;                                               # Mean duration of infectiousness (days)
-  durDelay = 7;                                                 # Median time from symptom onset to hospital admission Wang et al 2020
-  durLOS = 10 ;                                                 # median hospital stay 10 days which is likely to be underestimated
-  gamma = 1-exp(-1/durInf);                                      # removal rate
-  alpha = 1-exp(-1/durLat);                                      # infection rate
+  f = 0.5 # relative infectivity of pre/clinical cases compared to asymptomatic 
+  d_E = 4;   	                                             # Mean latent period (days) from Backer, et al (2020)
+  d_P = 1.5;                                               # Mean duration of infectiousness (days)
+  d_C = 4
+  d_A = 5.5 ;
+  
+  # resource model
+  d_H = 7;# Median time from symptom onset to hospital admission Wang et al 2020 and Linton et al 2020
+  d_I = 10 # Duration of stay in ICU
+  d_B = 8 # Duration of stay in Bed
+  
+  theta = 1-exp(-1/d_P);                                      # rate from Ip to Ic
+  gamma_Ic = 1-exp(-1/d_C);                                   # rate from Ic to R
+  gamma_Ia = 1-exp(-1/d_A);                                   # rate from Ia to R
+  alpha = 1-exp(-1/d_E);                                      # exposed to pre/symptomatic cases
+  
+   #delta = 0.2; # proportion of infected individuals that develop severe symptoms among infected
+  
   delta = 0.2;                                                       # proportion of clinical cases that develop severe signs
-  theta = 1-exp(-1/durDelay);                                       # Probability of hospital admission after symptom onset
-  epsilon = 0.26                                                    # Proportion of severe cases that need ICU Wang et al
-  zeta_B =1-exp(-1/durLOS);
-  zeta_C = 1-exp(-1/durLOS);
+  
+  epsilon = 0.3                                                    # Proportion of severe cases that need ICU Wang et al
+  
   dt = 1;                                                        # Time step (days)
-  tmax = 300;                                                    # Time horizon (days) 366 days in 2020 cause of leap year
+  tmax = 500;                                                    # Time horizon (days) 366 days in 2020 cause of leap year
   numSteps = tmax/dt;  	                                         # Total number of simulation time steps
                               # included as a function argument 
   dateEnd = dateStart+(tmax-1)
@@ -150,17 +180,18 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense 
   dtaeEndKNY = as.Date('2020-04-17')
   # Declare the state variables and related variables:
   # The values of these variables change over time
-  S = E = Isc = Ic = R = FA = BED = ICU = Z = array(0,c(numSteps,length(pop$p_age)))
+  S = E = Ip = Ic = Ia = R = FA = BED = ICU = Z = new_FA = new_DIS = array(0,c(numSteps,length(pop$p_age)))
   lambda = incidence = subclinical = cumulativeIncidence = array(0,c(numSteps,length(pop$p_age)))
   time = array(0,numSteps)
   
   
   # Initialise the time-dependent variables, i.e. setting the values of the variables at time 0
   E[1,] = 0 
-  Ic[1,] =  pInfected*sum(N_age)/length(pop$p_age)#rpois(length(N_age),lambda = pInfected*sum(N_age)/16)  # 100 # Assign 100 infected person in each age group (TODO RELAX?)
-  Isc[1,] = 0 
+  Ip[1,] =  pInfected*sum(N_age)/length(pop$p_age)#rpois(length(N_age),lambda = pInfected*sum(N_age)/16)  # 100 # Assign 100 infected person in each age group (TODO RELAX?)
+  Ic[1,] = 0 
+  Ia[1,] = 0
   R[1,] = 0 
-  S[1,] = N_age-E[1,]-Ic[1,]-Isc[1,]-R[1,]
+  S[1,] = N_age-E[1,]-Ic[1,]-Ip[1,]-Ia[1,]-R[1,]
   FA[1,] = 0
   BED[1,] = 0
   ICU[1,] = 0
@@ -168,8 +199,23 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense 
   incidence[1,] = 0;
   subclinical[1,] = 0;
   time[1] = 0;
+  new_FA[1,] = 0
+  new_DIS[1,] = 0
+  # Prepare subblocks for states that are subjected to gamma distribution FA, BED, ICU
+  F_sub <- ICU_sub <- BED_sub <- list()
+  n_age <- length(pop$p_age)
+  n_col_sub = 15
+  for(i in 1:n_age)
+  {
+    F_sub[[i]] = array(0,c(numSteps,n_col_sub+1))
+      ICU_sub[[i]] = array(0,c(numSteps,n_col_sub+1))
+      BED_sub[[i]] = array(0,c(numSteps,n_col_sub+1))
+  }
   
- 
+  # Prepare delay using gamma distribution
+  rate_IptoF = cm_delay_gamma(d_H,d_H,n_col_sub,dt)$p
+  rate_ICU = cm_delay_gamma(d_I,d_I,n_col_sub,dt)$p
+  rate_BED = cm_delay_gamma(d_B,d_B,n_col_sub,dt)$p
     # # Create dummy state variables for a deterministic formulation to cross-compare
     # FA_det = BED_det = ICU_det = Z_det = cum_Ic = cum_FA = cum_BED = cum_ICU = array(0,c(numSteps,length(pop$p_age)))
     # FA_det[1,] = 0
@@ -264,27 +310,78 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense 
       CONSTRAINT[[4]]%*%contacts_cambodia[[4]]
     
     # calculate the force of infection
-    sub_infectiousness = 0.25
+    
     R0tpostoutbreak = R0t #overwrites the default reduction in R0 post-outbreak
-    beta = getbeta(R0t = R0t,constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age,CONTACTMATRIX = contacts_cambodia )
+    beta = getbeta(R0t = R0t,constraints = constraintsIntervention$base,gamma = gamma_Ia,p_age = pop$p_age,CONTACTMATRIX = contacts_cambodia )
     if(pWorkOpen[2]<1) beta_postfirstwave = beta#getbeta(R0t = R0tpostoutbreak,constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age)
     if(pWorkOpen[2]>=1) beta_postfirstwave = beta#getbeta(R0t = R0t[2],constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age)
     # beta = getbeta(R0t = R0t[stepIndex],constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age)
     # if(time[stepIndex] < tEndIntenseIntervention+0) lambda[stepIndex,] = as.numeric(beta)*(as.matrix(C)%*%as.matrix(Ic[stepIndex,]/N_age) + sub_infectiousness*as.matrix(Isc[stepIndex,]/N_age));
     # if(time[stepIndex] >= tEndIntenseIntervention+0)lambda[stepIndex,] = as.numeric(beta_postfirstwave)*(as.matrix(C)%*%as.matrix(Ic[stepIndex,]/N_age) + sub_infectiousness*as.matrix(Isc[stepIndex,]/N_age));
-    lambda[stepIndex,] = as.numeric(beta)*(as.matrix(C)%*%as.matrix(Ic[stepIndex,]/N_age) + sub_infectiousness*as.matrix(Isc[stepIndex,]/N_age));
+    lambda[stepIndex,] = as.numeric(beta)*(as.matrix(C)%*%as.matrix((Ic[stepIndex,]+Ip[stepIndex,])/N_age) + f*as.matrix(Ia[stepIndex,]/N_age));
     # calculate the number of infections and recoveries between time t and t+dt
     
+    # TODO: Calculate R0 based on the beta and current contact
+    
+    # Here update the number of individuals in each state variable for disease dynamic model
     numStoE   = lambda[stepIndex,]*S[stepIndex,]*dt;                  # S to E
-    numEtoIc  = alpha*rho*E[stepIndex,]*dt;                           # E to Ic
-    numEtoIsc = alpha*(1-rho)*E[stepIndex,]*dt;                       # E to Isc
-    numIctoR  = gamma*Ic[stepIndex,]*dt;                              # Ic to R
-    numIsctoR = gamma*Isc[stepIndex,]*dt;                             # Isc to R
-    numEtoF   = rbinom(length(numEtoIc), round(numEtoIc), delta)    # E to FA
-    numFtoB = rbinom(length(FA[stepIndex,]), FA[stepIndex,], theta*(1-epsilon)*dt) # this only valid if time step is a day, otherwise use Poisson
-    numFtoC = rbinom(length(FA[stepIndex,]), FA[stepIndex,], theta*epsilon*dt) # this only valid if time step is a day, otherwise use Poisson
-    numBtoZ = rbinom(length(BED[stepIndex,]),BED[stepIndex,],zeta_B)
-    numCtoZ = rbinom(length(ICU[stepIndex,]),ICU[stepIndex,],zeta_C)
+    numEtoIp  = alpha*rho*E[stepIndex,]*dt;                           # E to Ip
+    numEtoIa = alpha*(1-rho)*E[stepIndex,]*dt;                        # E to Ia
+    numIptoIc = theta*Ip[stepIndex,]*dt;                              # Ip to Ic
+    numIctoR  = gamma_Ic*Ic[stepIndex,]*dt;                            # Ic to R
+    numIatoR = gamma_Ia*Ia[stepIndex,]*dt;                             # Ia to R
+    
+    # Resource model
+    numIptoF   = rbinom(length(numIptoIc), round(numIptoIc), delta)    # Ic to FA
+    
+    
+    # Subblock update
+        
+        
+        # obtain new coming from FA
+        #numIptoF is input
+        for(age in 1:n_age)
+        {
+          # Update F_sub
+          num_new_BandC = F_sub[[age]][stepIndex,1] # coming out from F, and admission to hospital = number of new hospital admission
+          new_FA[stepIndex,age] = num_new_BandC
+          numFtoC = rbinom(1, num_new_BandC, epsilon*dt) # Individuals coming out of F into ICU
+          numFtoB = num_new_BandC - numFtoC; # Individuals coming out of F into BED
+          # They will be distributed to different waiting time for discharge
+          # Before that update the F_sub
+          # Allocate numIptoF[[age]] if it's >0
+          F_sub[[age]][stepIndex+1,] <- c(F_sub[[age]][stepIndex,2:(n_col_sub+1)], 0 ) # slide the sub-blocks
+          if(numIptoF[age]>0)
+          {
+            add_F_sub <- t(
+              rmultinom(1, size = numIptoF[age],
+                        prob = rate_IptoF)) # assume constant gamma distribution for all age
+            F_sub[[age]][stepIndex+1,] = F_sub[[age]][stepIndex+1,] + add_F_sub
+          }
+          
+          # Update ICU and BED
+          new_DIS[stepIndex,age] = ICU_sub[[age]][stepIndex,1] + BED_sub[[age]][stepIndex,1] # sum of discharge
+          ICU_sub[[age]][stepIndex+1,] <- c(ICU_sub[[age]][stepIndex,2:(n_col_sub+1)],0)   
+          if(numFtoC>0)
+          {
+            add_ICU_sub <- t(
+              rmultinom(1, size = numFtoC,
+                        prob = rate_ICU)) # assume constant gamma distribution for all age
+            ICU_sub[[age]][stepIndex+1,] = ICU_sub[[age]][stepIndex+1,] + add_ICU_sub
+          }
+          ICU[stepIndex+1,age] = sum(ICU_sub[[age]][stepIndex+1,])
+          BED_sub[[age]][stepIndex+1,] <- c(BED_sub[[age]][stepIndex,2:(n_col_sub+1)],0)  
+          if(numFtoB>0)
+          {
+            add_BED_sub <- t(
+              rmultinom(1, size = numFtoB,
+                        prob = rate_BED)) # assume constant gamma distribution for all age
+            BED_sub[[age]][stepIndex+1,] = BED_sub[[age]][stepIndex+1,] + add_BED_sub
+          }
+          BED[stepIndex+1,age] = sum(BED_sub[[age]][stepIndex+1,])
+        }
+      
+
    
     # # calculate cumulative number of new Ic, FA, BED, ICU
     # cum_Ic[stepIndex+1,] = cum_Ic[stepIndex,] + numEtoIc
@@ -303,16 +400,17 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense 
     
      # Difference equations 
     S[stepIndex+1,]   = S[stepIndex,]-numStoE;
-    E[stepIndex+1,]   = E[stepIndex,]+numStoE-numEtoIc-numEtoIsc;
-    Ic[stepIndex+1,]  = Ic[stepIndex,]+numEtoIc-numIctoR;
-    Isc[stepIndex+1,] = Isc[stepIndex,]+numEtoIsc-numIsctoR;
-    R[stepIndex+1,]   = R[stepIndex,]+numIctoR+numIsctoR;
-    FA[stepIndex+1,]   = FA[stepIndex,]+numEtoF-numFtoB-numFtoC;
-    FA[stepIndex+1,] <-ifelse(FA[stepIndex+1,]<0,0,FA[stepIndex+1,])
+    E[stepIndex+1,]   = E[stepIndex,]+numStoE-numEtoIp-numEtoIa;
+    Ia[stepIndex+1,]  = Ia[stepIndex,]+numEtoIa-numIatoR;
+    Ip[stepIndex+1,] = Ip[stepIndex,]+numEtoIp-numIptoIc;
+    Ic[stepIndex+1,] = Ic[stepIndex,]+numIptoIc-numIctoR;
+    R[stepIndex+1,]   = R[stepIndex,]+numIatoR+numIctoR;
+    # FA[stepIndex+1,]   = FA[stepIndex,]+numEtoF-numFtoB-numFtoC;
+    # FA[stepIndex+1,] <-ifelse(FA[stepIndex+1,]<0,0,FA[stepIndex+1,])
    
-    BED[stepIndex+1,]   =BED[stepIndex,]+numFtoB-numBtoZ;
-    ICU[stepIndex+1,]   = ICU[stepIndex,]+numFtoC-numCtoZ;
-    Z[stepIndex+1,]   = Z[stepIndex,]+numBtoZ+numCtoZ;
+    # BED[stepIndex+1,]   =BED[stepIndex,]+numFtoB-numBtoZ;
+    # ICU[stepIndex+1,]   = ICU[stepIndex,]+numFtoC-numCtoZ;
+    # Z[stepIndex+1,]   = Z[stepIndex,]+numBtoZ+numCtoZ;
     
     # #For a deterministic model
     # FA_det[stepIndex+1,]   = FA_det[stepIndex,]+numEtoF_det-numFtoB_det-numFtoC_det;
@@ -320,13 +418,13 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense 
     # ICU_det[stepIndex+1,]   = ICU_det[stepIndex,]+numFtoC_det-numCtoZ_det;
     # Z_det[stepIndex+1,]   = Z_det[stepIndex,]+numBtoZ_det+numCtoZ_det;
     # 
-    incidence[stepIndex+1,] = numEtoIc/dt;
-    subclinical[stepIndex+1,] = numEtoIsc/dt;
+    incidence[stepIndex+1,] = (numEtoIa+numEtoIp)/dt;
+    subclinical[stepIndex+1,] = numEtoIa/dt;
     time[stepIndex+1] = time[stepIndex]+dt;
 
     
   }
-  output = list(S = S, E = E, Ic = Ic, Isc = Isc, R = R, BED= BED, ICU=ICU,Z=Z, time = time, lambda=lambda,
+  output = list(S = S, E = E, Ia=Ia,Ic = Ic, Ip = Ip, R = R, BED= BED, ICU=ICU,Z=Z, time = time, lambda=lambda,
                 # BED_det= BED_det, ICU_det=ICU_det,
                 # cum_Ic = cum_Ic, cum_FA = cum_FA, cum_BED = cum_BED, cum_ICU = cum_ICU,
                 incidence = incidence, N_age= N_age, subclinical = subclinical, 
