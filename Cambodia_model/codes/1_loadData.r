@@ -15,8 +15,7 @@ loadR0posterior =TRUE
 # 1) population data for whole Cambodia, rural and urban. Combine data. 
 if(loadPopData) 
 { 
-  cambodia_pp = read.csv('data/cambodia_population_2019.csv',as.is = TRUE)
-  cambodia_rr_ur = read.csv('data/cambodia_population_2013_rural_urban.csv',as.is = TRUE)
+  cambodia_pop = read.csv('data/cambodia_population_2013_pp_rural_urban_clean.csv',as.is = TRUE)
 }
 
 # 2) (projected) contact matrices 
@@ -59,27 +58,34 @@ if(loadContactMatrices)
 }
 
 # Check age category
-if(nrow(cambodia_pp)!=nrow(contact_cambodia[[1]][[1]])){
+if(nrow(cambodia_pop)!=nrow(contact_cambodia[[1]][[1]])){
   print("Population and Contact age group are different!")
   print(colnames(contact_cambodia[[1]][[1]]))
   nrow_contact <- nrow(contact_cambodia[[1]][[1]])
-  df1 <- cambodia_pp[1:(nrow_contact-1),]
-  df2 <- data.frame(cbind(cambodia_pp[nrow_contact,1],sum(cambodia_pp[nrow_contact:nrow(cambodia_pp),2])))
-  names(df2) <- colnames(df1)
+  df1 <- cambodia_pop[1:(nrow_contact-1),]
+  df2 <- as.numeric(colSums(cambodia_pop[nrow_contact:nrow(cambodia_pop),2:ncol(cambodia_pop)]))
+  df3 <- c(cambodia_pop[nrow_contact,1],df2)
+  #names(df3) <- colnames(df1)
   cambodia_pop_new <- 
-    bind_rows(df1,df2)
-  colnames(cambodia_pop_new)[2] <- "popage"
-  totN = sum(cambodia_pop_new[,"popage"])
-  cambodia_pop_new$propage <- cambodia_pop_new[,"popage"]/totN
-  col_nam = colnames(cambodia_pop_new)
-  
+    rbind(df1,df3)
+
+  rm(cambodia_pop)
   # Create a list for the population - in the end it becoems for each province
   cambodia_pop = list()
-  cambodia_pop[[1]] = cambodia_pop_new
-  temp = cambodia_rr_ur[,c(2:3)]*totN
-  cambodia_pop[[2]] = data.frame(cbind(lower.age.limit=cambodia_pop_new[,1],popage=temp[,1],propage=cambodia_rr_ur[,2])) #rural
-  cambodia_pop[[3]] = data.frame(cbind(lower.age.limit=cambodia_pop_new[,1],popage=temp[,2],propage=cambodia_rr_ur[,3])) #urban
-  rm(cambodia_pop_new,temp, df1,df2,cambodia_rr_ur,cambodia_pp)
+  num_province <- 3
+  for(i in 1:num_province)
+  {
+    dat = cambodia_pop_new[,c(1,i*2,i*2+1)]
+    colnames(dat) = c("age","propage","popage")
+    dat$propage = as.numeric(as.character(dat$propage))
+    dat$popage = as.numeric(as.character(dat$popage))
+    cambodia_pop[[i]] = dat
+  }
+  
+  # temp = cambodia_rr_ur[,c(2:3)]*totN
+  # cambodia_pop[[2]] = data.frame(cbind(lower.age.limit=cambodia_pop_new[,1],popage=temp[,1],propage=cambodia_rr_ur[,2])) #rural
+  # cambodia_pop[[3]] = data.frame(cbind(lower.age.limit=cambodia_pop_new[,1],popage=temp[,2],propage=cambodia_rr_ur[,3])) #urban
+  rm(cambodia_pop_new, df1,df2,df3)
           }
 
 # case age distribution - this needs modification
