@@ -9,54 +9,56 @@ loadPopInfo = function(POP)
   pop$p_age = POP$propage    # Population age structure 
   return(pop)
 }
-
 # Argument - nrow of contact matrix and an age group indicator for the highest age group affected school close
-loadInterventions = function(p_workopen,nrow_contact,x)
+loadInterventions = function(nrow_contact,x,province,INTERVENTION)
 {
+  so_dis <- c(0.7,0.74,0.84) # update when using all province
+  lockdown <- c(0.21,0.28,0.48)
   list(
     # constraints under a DO-NOTHING scenario 
-    base =list(home = diag(1,nrow_contact,nrow_contact),
+    Baseline =list(home = diag(1,nrow_contact,nrow_contact),
                work = diag(1,nrow_contact,nrow_contact),
                school = diag(1,nrow_contact,nrow_contact),
                others = diag(1,nrow_contact,nrow_contact)),
-    # Phnom Penh's lockdown--assume from XX April to XX May
-    phnompenhlockdown = list(home = diag(1,nrow_contact,nrow_contact),
-                         work = diag(0.1,nrow_contact,nrow_contact),
-                         school = diag(0,nrow_contact,nrow_contact),
-                         others = diag(c(rep(0.1,x),rep(0.1,nrow_contact-x)))),
     # constraints under school closure + no social distancing for school-age going children but 100% workplace
-    schcloseonly = list(home = diag(c(rep(1,x),rep(1,nrow_contact-x))),
+    School = list(home = diag(c(rep(1,x),rep(1,nrow_contact-x))),
                         work = diag(1,nrow_contact,nrow_contact),
                         school = diag(0,nrow_contact,nrow_contact),
-                        others = diag(c(rep(1,x),rep(0.4,nrow_contact-x)))), 
-    # constraints under work place distancing only (MAYBE UNREALISTIC, should close schools too)
-    workplacedistonly = list(home = diag(1,nrow_contact,nrow_contact),
-                             work = diag(0.5,nrow_contact,nrow_contact),
+                        others = diag(1,nrow_contact,nrow_contact)), 
+    # constraints under work place distancing only 
+    Social_distance1 = list(home = diag(1,nrow_contact,nrow_contact),
+                             work = diag(so_dis[province],nrow_contact,nrow_contact),
                              school = diag(1,nrow_contact,nrow_contact),
-                             others = diag(0.1,nrow_contact,nrow_contact)) ,
-    
+                             others = diag(1,nrow_contact,nrow_contact)) ,
+    # constraints under public/leisure closure only 
+    Social_distance2 = list(home = diag(1,nrow_contact,nrow_contact),
+                      work = diag(1,nrow_contact,nrow_contact),
+                      school = diag(1,nrow_contact,nrow_contact),
+                      others = diag(0.5,nrow_contact,nrow_contact)) ,
+    # Elderly shielding only only 
+    Elderly_shielding = list(home = diag(1,nrow_contact,nrow_contact),
+                      work = diag(c(rep(1,nrow_contact-1),rep(0.25,1))),
+                      school = diag(1,nrow_contact,nrow_contact),
+                      others = diag(c(rep(1,nrow_contact-1),rep(0.25,1)))) ,
     # constraints under work place distancing + schoolclosure + bar/museum closure
-    schcloseworkplacedist = list(home = diag(1,nrow_contact,nrow_contact),
-                                 work = diag(p_workopen,nrow_contact,nrow_contact),
-                                 school = diag(0,nrow_contact,nrow_contact),
-                                 others = diag(c(rep(1,x),rep(0.4,nrow_contact-x)))),
+    Combined = list(home = diag(1,nrow_contact,nrow_contact),
+                    work = diag(c(rep(so_dis[province],nrow_contact-1),rep(0.25,1))),
+                    school = diag(0,nrow_contact,nrow_contact),
+                    others = diag(0.5,nrow_contact,nrow_contact)) ,
     # Post Outbeak, people still cautious 
-    postoutbreak = list(home = diag(1,nrow_contact,nrow_contact),
-                        work = diag(1.0,nrow_contact,nrow_contact),
-                        school = diag(1.0,nrow_contact,nrow_contact),
-                        others = diag(c(rep(1.0,x),rep(1.0,nrow_contact-x)))),
-    # KNY
-    KNY = list(home = diag(1,nrow_contact,nrow_contact),
-                                 work = diag(0,nrow_contact,nrow_contact),
-                                 school = diag(0,nrow_contact,nrow_contact),
-                                 others = diag(c(rep(1,x),rep(0.4,nrow_contact-x))))
+    Lockdown = list(home = diag(1,nrow_contact,nrow_contact),
+                        work = diag(lockdown[province],nrow_contact,nrow_contact),
+                        school = diag(0,nrow_contact,nrow_contact),
+                    others = diag(0.5,nrow_contact,nrow_contact)) 
+  
     
     )
   
 }
 
 
-getbeta = function(R0t,constraints,gamma,p_age,calculate_transmission_probability=1,CONTACTMATRIX = contacts_cambodia)
+
+getbeta = function(R0t,gamma,p_age,CONTACTMATRIX = contacts_cambodia)
 {
   # 1) R0
   # 2) gamma = removal rate  
@@ -67,17 +69,14 @@ getbeta = function(R0t,constraints,gamma,p_age,calculate_transmission_probabilit
   
   # constraints for age-specific contacts at home, work, school, others
   n = length(p_age)
-  constraints_base = list(home = diag(1,n),
-                          work = diag(1,n), 
-                          school = diag(1,n), 
-                          others = diag(1,n)) # constraints under a DO-NOTHING scenario
-  
+  calculate_transmission_probability = 1
+
   Csym <- lapply(CONTACTMATRIX, function(x, p_age) (x + t(x)*((p_age)%*%t(1/p_age)))/2, p_age) # make sure contacts are reciprocal
   CONTACTMATRIX=Csym
-  C = constraints_base[[1]]%*%CONTACTMATRIX[[1]]+
-    constraints_base[[2]]%*%CONTACTMATRIX[[2]]+
-    constraints_base[[3]]%*%CONTACTMATRIX[[3]]+
-    constraints_base[[4]]%*%CONTACTMATRIX[[4]]
+  C = CONTACTMATRIX[[1]]+
+    CONTACTMATRIX[[2]]+
+    CONTACTMATRIX[[3]]+
+    CONTACTMATRIX[[4]]
   
   
   if (calculate_transmission_probability==1){
@@ -109,12 +108,13 @@ cm_delay_gamma = function(mu, shape, t_max, t_step)
   return (data.table(t = t_points, p = heights / sum(heights))) # getting cumulative density at t_points
 }
 
-simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense intervention 
-                                    pWorkOpen, # pWorkOpen: proportion of the work force that is working (will be time-varying)
-                                    dateStartSchoolClosure = as.Date('2020-03-16') , # National school closure
-                                    dateStartVoluntary = as.Date('2020-03-30'), #Intense intervention
-                                    dateStart = as.Date('2020-03-01'),cambodia_pop = cambodia_pop,numWeekStagger,pInfected,durInf,contacts_cambodia=contacts_cambodia,
-                                    x
+
+simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #date we begin relaxing intense intervention 
+                                       dateStart,
+                                       dateStartIntervention,
+                                       cambodia_pop = cambodia_pop,
+                                      contacts_cambodia=contacts_cambodia, pInfected,
+                                    x,province
                                     )
 {
   # debug dateStartIntenseIntervention = as.Date('2020-01-23')  
@@ -160,7 +160,7 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense 
   theta = 1-exp(-1/d_P);                                      # rate from Ip to Ic
   gamma_Ic = 1-exp(-1/d_C);                                   # rate from Ic to R
   gamma_Ia = 1-exp(-1/d_A);                                   # rate from Ia to R
-  alpha = 1-exp(-1/d_E);                                      # exposed to pre/symptomatic cases
+  alpha = 1-exp(-1/d_E);                                      # exposed to pre/asymptomatic cases
   
    #delta = 0.2; # proportion of infected individuals that develop severe symptoms among infected
   
@@ -173,17 +173,17 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense 
   numSteps = tmax/dt;  	                                         # Total number of simulation time steps
                               # included as a function argument 
   dateEnd = dateStart+(tmax-1)
-  dateStartCNY = as.Date('2020-01-25') 
-  dateEndCNY = as.Date('2020-01-31') 
-  
-  dtaeStartKNY = as.Date('2020-04-13')
-  dtaeEndKNY = as.Date('2020-04-17')
+  # dateStartCNY = as.Date('2020-01-25') 
+  # dateEndCNY = as.Date('2020-01-31') 
+  # 
+  # dtaeStartKNY = as.Date('2020-04-13')
+  # dtaeEndKNY = as.Date('2020-04-17')
   # Declare the state variables and related variables:
   # The values of these variables change over time
   S = E = Ip = Ic = Ia = R = FA = BED = ICU = Z = new_FA = new_DIS = array(0,c(numSteps,length(pop$p_age)))
   lambda = incidence = subclinical = cumulativeIncidence = array(0,c(numSteps,length(pop$p_age)))
   time = array(0,numSteps)
-  
+  R_ef = array(0,numSteps)
   
   # Initialise the time-dependent variables, i.e. setting the values of the variables at time 0
   E[1,] = 0 
@@ -230,73 +230,78 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense 
   # School closed 2020-03-16, lockdown (intense intervention) started 2020-03-19, end of intense intervention: user-specified 
   # note that intense intervention is time-varying control by pWorkOpen: proportion of the work force that is working
   # debug pWorkOpen = c(0.1,0.25,0.5,1)
-  tStartSchoolClosure = as.vector(dateStartSchoolClosure - dateStart)+1
-  tStartVoluntary = as.vector(dateStartVoluntary - dateStart)+1 # for pw = 0.1
-  tStartKNY = as.vector(dtaeStartKNY - dateStart)+1
-  tEndKNY = as.vector(dtaeEndKNY - dateStart)+1
-  tStartIntervention1 = tEndKNY + numWeekStagger[1]*7 + 1 #Slightly relaxed intervention after KNY
-  tStartIntervention2 = tEndKNY + numWeekStagger[2]*7 + 1 #Lockdown
-  tStartIntervention3 = tEndKNY + numWeekStagger[3]*7 + 1 #How long an intensive lockdown required?
+  tStartIntervention = as.vector(dateStartIntervention - dateStart)+1
+  # tStartSchoolClosure = as.vector(dateStartSchoolClosure - dateStart)+1
+  # tStartVoluntary = as.vector(dateStartVoluntary - dateStart)+1 # for pw = 0.1
+  # tStartKNY = as.vector(dtaeStartKNY - dateStart)+1
+  # tEndKNY = as.vector(dtaeEndKNY - dateStart)+1
+  # tStartIntervention1 = tEndKNY + numWeekStagger[1]*7 + 1 #Slightly relaxed intervention after KNY
+  # tStartIntervention2 = tEndKNY + numWeekStagger[2]*7 + 1 #Lockdown
+  # tStartIntervention3 = tEndKNY + numWeekStagger[3]*7 + 1 #How long an intensive lockdown required?
   tEnd = as.vector(dateEnd - dateStart) + 1
   # tStartEndClosure = as.vector(dateEndSchoolClosure - dateStart)+1
-  pwork = array(1,numSteps)
-  pwork[1:tEnd] =c(rep(1,(tStartVoluntary-0)), # no office closure
-                                  rep(pWorkOpen[1],(tEndKNY-tStartVoluntary)), # Voluntary closure - KNY all close but it's accounted
-                                  rep(pWorkOpen[2],(tStartIntervention1-tEndKNY)),# no intervention after KNY - probably same as voluntary
-                                  rep(pWorkOpen[3],(tStartIntervention2-tStartIntervention1)), # Slightly relaxed intervention
-                                  rep(pWorkOpen[4],(tStartIntervention3-tStartIntervention2)), # Lockdown
-                                  rep(pWorkOpen[5],(tEnd-tStartIntervention3))
-                                    )
-  
+  # pwork = array(1,numSteps)
+  # pwork[1:tEnd] =c(rep(1,(tStartVoluntary-0)), # no office closure
+  #                                 rep(pWorkOpen[1],(tEndKNY-tStartVoluntary)), # Voluntary closure - KNY all close but it's accounted
+  #                                 rep(pWorkOpen[2],(tStartIntervention1-tEndKNY)),# no intervention after KNY - probably same as voluntary
+  #                                 rep(pWorkOpen[3],(tStartIntervention2-tStartIntervention1)), # Slightly relaxed intervention
+  #                                 rep(pWorkOpen[4],(tStartIntervention3-tStartIntervention2)), # Lockdown
+  #                                 rep(pWorkOpen[5],(tEnd-tStartIntervention3))
+  #                                   )
+  # 
   for (stepIndex in 1: (numSteps-1))
   { 
     #print(stepIndex)
     # load plausible intervetions 
-    constraintsIntervention = loadInterventions(p_workopen = pwork[stepIndex],nrow_contact,x)
+    constraintsIntervention = loadInterventions(nrow_contact,x,province,INTERVENTION)
     
     ## Age- and location-specific contact rates for the given interventions 
-    
-    # I0: before school closure, use base-case
-    if(time[stepIndex] < tStartSchoolClosure)  
+    # Before intervention
+    if(time[stepIndex] < tStartIntervention)  
     {
-      CONSTRAINT = constraintsIntervention$base
+      CONSTRAINT = constraintsIntervention$Baseline
     }
-    # I1:  Until voluntary period, use 'schcloseonly'
-    if(time[stepIndex] >= tStartSchoolClosure & time[stepIndex] < tStartVoluntary) 
+    if(time[stepIndex] >= tStartIntervention)  
     {
-      INTERVENTION = "schcloseonly"   
       CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    }  
-    # KNY : until KNY from voluntary closure
-    if(time[stepIndex] >= tStartVoluntary & time[stepIndex] < tStartKNY) 
-    {
-      INTERVENTION = "schcloseworkplacedist"   
-      CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    }  
-    # I2:  KNY
-    if(time[stepIndex] >= tStartKNY & time[stepIndex] < tEndKNY) 
-    {
-      INTERVENTION = "KNY"   
-      CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    }  
-    # I3: after KNY until Lockdown
-    if(time[stepIndex] >= tEndKNY & time[stepIndex] < tStartIntervention2 ) 
-    {
-      INTERVENTION = "schcloseworkplacedist"   
-      CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    }  
-    # I4: During lockdown
-    if(time[stepIndex] >= tStartIntervention2 & time[stepIndex] < tStartIntervention3 ) 
-    {
-      INTERVENTION = "phnompenhlockdown"   
-      CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    } 
-    # I5: after lockdown
-    if(time[stepIndex] >= tStartIntervention3 ) 
-    {
-      INTERVENTION = "schcloseworkplacedist"   
-      CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    } 
+    }
+    # I0: before school closure, use base-case
+C    # # I1:  Until voluntary period, use 'schcloseonly'
+    # if(time[stepIndex] >= tStartSchoolClosure & time[stepIndex] < tStartVoluntary) 
+    # {
+    #   INTERVENTION = "schcloseonly"   
+    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
+    # }  
+    # # KNY : until KNY from voluntary closure
+    # if(time[stepIndex] >= tStartVoluntary & time[stepIndex] < tStartKNY) 
+    # {
+    #   INTERVENTION = "schcloseworkplacedist"   
+    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
+    # }  
+    # # I2:  KNY
+    # if(time[stepIndex] >= tStartKNY & time[stepIndex] < tEndKNY) 
+    # {
+    #   INTERVENTION = "KNY"   
+    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
+    # }  
+    # # I3: after KNY until Lockdown
+    # if(time[stepIndex] >= tEndKNY & time[stepIndex] < tStartIntervention2 ) 
+    # {
+    #   INTERVENTION = "schcloseworkplacedist"   
+    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
+    # }  
+    # # I4: During lockdown
+    # if(time[stepIndex] >= tStartIntervention2 & time[stepIndex] < tStartIntervention3 ) 
+    # {
+    #   INTERVENTION = "phnompenhlockdown"   
+    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
+    # } 
+    # # I5: after lockdown
+    # if(time[stepIndex] >= tStartIntervention3 ) 
+    # {
+    #   INTERVENTION = "schcloseworkplacedist"   
+    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
+    # } 
     # # post outbreak
     # if(time[stepIndex] >= tRelaxIntervention3)  
     # {
@@ -311,14 +316,32 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense 
     
     # calculate the force of infection
     
-    R0tpostoutbreak = R0t #overwrites the default reduction in R0 post-outbreak
-    beta = getbeta(R0t = R0t,constraints = constraintsIntervention$base,gamma = gamma_Ia,p_age = pop$p_age,CONTACTMATRIX = contacts_cambodia )
-    if(pWorkOpen[2]<1) beta_postfirstwave = beta#getbeta(R0t = R0tpostoutbreak,constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age)
-    if(pWorkOpen[2]>=1) beta_postfirstwave = beta#getbeta(R0t = R0t[2],constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age)
+    #R0tpostoutbreak = R0t #overwrites the default reduction in R0 post-outbreak
+    # Calculate beta only once per simulation and use this for Rural/Urban (or all provinces) as well
+    # That means maybe prepare beta beforehand by calculating based on the formula before and use this for all provinces
+    #beta = getbeta(R0t = R0t,constraints = constraintsIntervention$base,gamma = gamma_Ia,p_age = pop$p_age,CONTACTMATRIX = contacts_cambodia )
+    # if(pWorkOpen[2]<1) beta_postfirstwave = beta#getbeta(R0t = R0tpostoutbreak,constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age)
+    # if(pWorkOpen[2]>=1) beta_postfirstwave = beta#getbeta(R0t = R0t[2],constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age)
     # beta = getbeta(R0t = R0t[stepIndex],constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age)
     # if(time[stepIndex] < tEndIntenseIntervention+0) lambda[stepIndex,] = as.numeric(beta)*(as.matrix(C)%*%as.matrix(Ic[stepIndex,]/N_age) + sub_infectiousness*as.matrix(Isc[stepIndex,]/N_age));
     # if(time[stepIndex] >= tEndIntenseIntervention+0)lambda[stepIndex,] = as.numeric(beta_postfirstwave)*(as.matrix(C)%*%as.matrix(Ic[stepIndex,]/N_age) + sub_infectiousness*as.matrix(Isc[stepIndex,]/N_age));
-    lambda[stepIndex,] = as.numeric(beta)*(as.matrix(C)%*%as.matrix((Ic[stepIndex,]+Ip[stepIndex,])/N_age) + f*as.matrix(Ia[stepIndex,]/N_age));
+    u = beta*4/3
+    lambda[stepIndex,] = as.numeric(u)*(as.matrix(C)%*%as.matrix((Ic[stepIndex,]+Ip[stepIndex,])/N_age) + f*as.matrix(Ia[stepIndex,]/N_age));
+    
+    # Calculate R0
+      fIp = fIs = 1
+      fIa = 0.5
+      
+      y = rho
+ 
+      ngm = u*t(t(C) * (
+        y * (fIp * d_P + fIs * d_C) +  #fIp = rep(1, n_groups), fIs = rep(1, n_groups),fIa = rep(0.5, n_groups), relative infectiousness
+          (1 - y) * fIa * d_A))
+      
+     R_ef[stepIndex] = abs(eigen(ngm)$values[1])
+    
+    
+    
     # calculate the number of infections and recoveries between time t and t+dt
     
     # TODO: Calculate R0 based on the beta and current contact
@@ -428,9 +451,8 @@ simulateOutbreakSEIcIscRBCZ = function(R0t,rho, #date we begin relaxing intense 
                 # BED_det= BED_det, ICU_det=ICU_det,
                 # cum_Ic = cum_Ic, cum_FA = cum_FA, cum_BED = cum_BED, cum_ICU = cum_ICU,
                 incidence = incidence, N_age= N_age, subclinical = subclinical, 
-                R0t = R0t,#rho = rho,
-                dateStart = dateStart, dateEnd = dateEnd,
-                dateStartSchoolClosure = dateStartSchoolClosure, dateStartCNY = dateStartCNY,dateEndCNY = dateEndCNY)
+                R_ef=R_ef,#rho = rho,
+                dateStart = dateStart, dateEnd = dateEnd)
   return(output)
 }
 
