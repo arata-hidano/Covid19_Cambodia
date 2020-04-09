@@ -12,8 +12,8 @@ loadPopInfo = function(POP)
 # Argument - nrow of contact matrix and x is an age group indicator for the highest age group affected by school close (x is parameter effectively obsolete)
 loadInterventions = function(nrow_contact,x,province,INTERVENTION)
 {
-  so_dis <- c(0.51,0.57,0.73) # social distancing 1 (work) parameters for each area, update when using all province
-  lockdown <- c(0.21,0.28,0.48) # workopen during lockdown for each area
+  so_dis <- c(0.51,0.57,0.73,0.73) # social distancing 1 (work) parameters for each area, update when using all province
+  lockdown <- c(0.21,0.28,0.48,0.48) # workopen during lockdown for each area
   list(
     # constraints under a DO-NOTHING scenario 
     Baseline =list(home_H = diag(1,nrow_contact,nrow_contact),
@@ -129,7 +129,7 @@ cm_delay_gamma = function(mu, shape, t_max, t_step)
 }
 
 
-simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #type of intervention
+simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of intervention
                                        dateStart, # date we start simulation 
                                        dateStartIntervention, # date we start intervention
                                        months_Intervention, # duration of intervention in months
@@ -180,7 +180,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #type of intervent
   
    #delta = 0.2; # proportion of infected individuals that develop severe symptoms among infected
   
-  delta = 0.2;                                                       # proportion of clinical cases that develop severe signs
+#  delta = 0.2;                                                       # proportion of clinical cases that develop severe signs
   
   epsilon = 0.3                                                    # Proportion of severe cases that need ICU Wang et al
   
@@ -239,11 +239,13 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #type of intervent
   
 
   ## INTERVENTIONS 
-  tStartIntervention = as.vector(dateStartIntervention - dateStart)+1
+  tStartIntervention = as.vector(dateStartIntervention - dateStart)
   tEndIntervention = months_Intervention*30+tStartIntervention
   tEnd = as.vector(dateEnd - dateStart) + 1
  
   ## Choose a right intervention on a given stepIndex 
+  # Note time is staring at 0
+  # Intervention start on day X, no need for +1
   for (stepIndex in 1: (numSteps-1))
   { 
     #print(stepIndex)
@@ -252,7 +254,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #type of intervent
     
     ## Age- and location-specific contact rates for the given interventions 
     # Before intervention
-    if(time[stepIndex] < tStartIntervention)  
+    if(time[stepIndex] < tStartIntervention)  # Day 0 to tStartIntervention-1 = length equal to tStartIntervention value
     {
       CONSTRAINT = constraintsIntervention$Baseline
       fIc =1
