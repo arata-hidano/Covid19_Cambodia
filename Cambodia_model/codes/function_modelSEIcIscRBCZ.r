@@ -12,49 +12,63 @@ loadPopInfo = function(POP)
 # Argument - nrow of contact matrix and x is an age group indicator for the highest age group affected by school close (x is parameter effectively obsolete)
 loadInterventions = function(nrow_contact,x,province,INTERVENTION)
 {
-  so_dis <- c(0.7,0.74,0.84) # social distancing 1 (work) parameters for each area, update when using all province
+  so_dis <- c(0.51,0.57,0.73) # social distancing 1 (work) parameters for each area, update when using all province
   lockdown <- c(0.21,0.28,0.48) # workopen during lockdown for each area
   list(
     # constraints under a DO-NOTHING scenario 
-    Baseline =list(home = diag(1,nrow_contact,nrow_contact),
+    Baseline =list(home_H = diag(1,nrow_contact,nrow_contact),
+                   home_NH = diag(1,nrow_contact,nrow_contact),
                work = diag(1,nrow_contact,nrow_contact),
                school = diag(1,nrow_contact,nrow_contact),
                others = diag(1,nrow_contact,nrow_contact)),
     # constraints under school closure + no social distancing for school-age going children but 100% workplace
-    School = list(home = diag(c(rep(1,x),rep(1,nrow_contact-x))),
+    School = list(home_H = diag(1,nrow_contact,nrow_contact),
+                  home_NH = diag(1,nrow_contact,nrow_contact),
                         work = diag(1,nrow_contact,nrow_contact),
                         school = diag(0,nrow_contact,nrow_contact),
                         others = diag(1,nrow_contact,nrow_contact)), 
     # constraints under work place distancing only 
-    Social_distance1 = list(home = diag(1,nrow_contact,nrow_contact),
+    Social_distance1 = list(home_H = diag(1,nrow_contact,nrow_contact),
+                            home_NH = diag(1,nrow_contact,nrow_contact),
                              work = diag(so_dis[province],nrow_contact,nrow_contact),
                              school = diag(1,nrow_contact,nrow_contact),
                              others = diag(1,nrow_contact,nrow_contact)) ,
     # constraints under public/leisure closure only 
-    Social_distance2 = list(home = diag(1,nrow_contact,nrow_contact),
+    Social_distance2 = list(home_H = diag(1,nrow_contact,nrow_contact),
+                            home_NH = diag(1,nrow_contact,nrow_contact),
                       work = diag(1,nrow_contact,nrow_contact),
                       school = diag(1,nrow_contact,nrow_contact),
                       others = diag(0.5,nrow_contact,nrow_contact)) ,
+    # constraints under limiting household visitors 
+    Social_distance3 = list(home_H = diag(1,nrow_contact,nrow_contact),
+                            home_NH = diag(0.25,nrow_contact,nrow_contact),
+                            work = diag(1,nrow_contact,nrow_contact),
+                            school = diag(1,nrow_contact,nrow_contact),
+                            others = diag(1,nrow_contact,nrow_contact)) ,
     # Elderly shielding only 
-    Elderly_shielding = list(home = diag(1,nrow_contact,nrow_contact),
+    Elderly_shielding = list(home_H = diag(1,nrow_contact,nrow_contact),
+                             home_NH = diag(c(rep(1,nrow_contact-1),rep(0.25,1))),
                       work = diag(c(rep(1,nrow_contact-1),rep(0.25,1))),
                       school = diag(1,nrow_contact,nrow_contact),
                       others = diag(c(rep(1,nrow_contact-1),rep(0.25,1)))) ,
     # Self isolation - same as baseline but modify infectiousness of clinical
-    Self_isolation =list(home = diag(1,nrow_contact,nrow_contact),
+    Self_isolation =list(home_H = diag(1,nrow_contact,nrow_contact),
+                         home_NH = diag(1,nrow_contact,nrow_contact),
                    work = diag(1,nrow_contact,nrow_contact),
                    school = diag(1,nrow_contact,nrow_contact),
                    others = diag(1,nrow_contact,nrow_contact)),
     # combined of all
-    Combined = list(home = diag(1,nrow_contact,nrow_contact),
+    Combined = list(home_H = diag(1,nrow_contact,nrow_contact),
+                    home_NH = diag(0.25,nrow_contact,nrow_contact),
                     work = diag(c(rep(so_dis[province],nrow_contact-1),rep(0.25,1))),
                     school = diag(0,nrow_contact,nrow_contact),
                     others = diag(0.5,nrow_contact,nrow_contact)) ,
     # Lockdown
-    Lockdown = list(home = diag(1,nrow_contact,nrow_contact),
+    Lockdown = list(home_H = diag(1,nrow_contact,nrow_contact),
+                    home_NH = diag(0.1,nrow_contact,nrow_contact),
                         work = diag(lockdown[province],nrow_contact,nrow_contact),
                         school = diag(0,nrow_contact,nrow_contact),
-                    others = diag(0.5,nrow_contact,nrow_contact)) 
+                    others = diag(0.1,nrow_contact,nrow_contact)) 
   
     
     )
@@ -81,7 +95,8 @@ getbeta = function(R0t,gamma,p_age,CONTACTMATRIX = contacts_cambodia)
   C = CONTACTMATRIX[[1]]+
     CONTACTMATRIX[[2]]+
     CONTACTMATRIX[[3]]+
-    CONTACTMATRIX[[4]]
+    CONTACTMATRIX[[4]]+
+    CONTACTMATRIX[[5]]
   
   
   if (calculate_transmission_probability==1){
@@ -264,7 +279,8 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #type of intervent
     C = CONSTRAINT[[1]]%*%contacts_cambodia[[1]]+
       CONSTRAINT[[2]]%*%contacts_cambodia[[2]]+
       CONSTRAINT[[3]]%*%contacts_cambodia[[3]]+
-      CONSTRAINT[[4]]%*%contacts_cambodia[[4]]
+      CONSTRAINT[[4]]%*%contacts_cambodia[[4]]+
+      CONSTRAINT[[5]]%*%contacts_cambodia[[5]]
     
     # calculate the force of infection
     
