@@ -1,4 +1,4 @@
-## functions to simulate the SEIR and SEIcIscR outbreak
+## functions to simulate the SEIpIcIaR outbreak
 
 ## load data: Population age structure 
 
@@ -9,11 +9,11 @@ loadPopInfo = function(POP)
   pop$p_age = POP$propage    # Population age structure 
   return(pop)
 }
-# Argument - nrow of contact matrix and an age group indicator for the highest age group affected school close
+# Argument - nrow of contact matrix and x is an age group indicator for the highest age group affected by school close (x is parameter effectively obsolete)
 loadInterventions = function(nrow_contact,x,province,INTERVENTION)
 {
-  so_dis <- c(0.7,0.74,0.84) # update when using all province
-  lockdown <- c(0.21,0.28,0.48)
+  so_dis <- c(0.7,0.74,0.84) # social distancing 1 (work) parameters for each area, update when using all province
+  lockdown <- c(0.21,0.28,0.48) # workopen during lockdown for each area
   list(
     # constraints under a DO-NOTHING scenario 
     Baseline =list(home = diag(1,nrow_contact,nrow_contact),
@@ -35,17 +35,22 @@ loadInterventions = function(nrow_contact,x,province,INTERVENTION)
                       work = diag(1,nrow_contact,nrow_contact),
                       school = diag(1,nrow_contact,nrow_contact),
                       others = diag(0.5,nrow_contact,nrow_contact)) ,
-    # Elderly shielding only only 
+    # Elderly shielding only 
     Elderly_shielding = list(home = diag(1,nrow_contact,nrow_contact),
                       work = diag(c(rep(1,nrow_contact-1),rep(0.25,1))),
                       school = diag(1,nrow_contact,nrow_contact),
                       others = diag(c(rep(1,nrow_contact-1),rep(0.25,1)))) ,
-    # constraints under work place distancing + schoolclosure + bar/museum closure
+    # Self isolation - same as baseline but modify infectiousness of clinical
+    Self_isolation =list(home = diag(1,nrow_contact,nrow_contact),
+                   work = diag(1,nrow_contact,nrow_contact),
+                   school = diag(1,nrow_contact,nrow_contact),
+                   others = diag(1,nrow_contact,nrow_contact)),
+    # combined of all
     Combined = list(home = diag(1,nrow_contact,nrow_contact),
                     work = diag(c(rep(so_dis[province],nrow_contact-1),rep(0.25,1))),
                     school = diag(0,nrow_contact,nrow_contact),
                     others = diag(0.5,nrow_contact,nrow_contact)) ,
-    # Post Outbeak, people still cautious 
+    # Lockdown
     Lockdown = list(home = diag(1,nrow_contact,nrow_contact),
                         work = diag(lockdown[province],nrow_contact,nrow_contact),
                         school = diag(0,nrow_contact,nrow_contact),
@@ -109,19 +114,16 @@ cm_delay_gamma = function(mu, shape, t_max, t_step)
 }
 
 
-simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #date we begin relaxing intense intervention 
-                                       dateStart,
-                                       dateStartIntervention,
+simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #type of intervention
+                                       dateStart, # date we start simulation 
+                                       dateStartIntervention, # date we start intervention
+                                       months_Intervention, # duration of intervention in months
                                        cambodia_pop = cambodia_pop,
                                       contacts_cambodia=contacts_cambodia, pInfected,
                                     x,province
                                     )
 {
-  # debug dateStartIntenseIntervention = as.Date('2020-01-23')  
-  # debug dateEndIntenseIntervention = as.Date('2020-03-01')
-  # debug R0est = rep(2,3660) 
-  # debug rho = rep(0.8,3660) 
-  # debug pWorkOpen =  c(0.1,0.25,0.5,1)
+
   
   
   # Load population information
@@ -130,8 +132,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #date we begin rel
   pop$p_age = cambodia_pop$propage
   N_age = pop$N*pop$p_age  
   nrow_contact <- nrow(cambodia_pop)
-  # Population age structure (in numbers)
-  # contacts_china = CONTACTS
+
   
   
   # States structure
@@ -146,7 +147,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #date we begin rel
   
   
   # Specify epi info
-  f = 0.5 # relative infectivity of pre/clinical cases compared to asymptomatic 
+  
   d_E = 4;   	                                             # Mean latent period (days) from Backer, et al (2020)
   d_P = 1.5;                                               # Mean duration of infectiousness (days)
   d_C = 4
@@ -173,11 +174,6 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #date we begin rel
   numSteps = tmax/dt;  	                                         # Total number of simulation time steps
                               # included as a function argument 
   dateEnd = dateStart+(tmax-1)
-  # dateStartCNY = as.Date('2020-01-25') 
-  # dateEndCNY = as.Date('2020-01-31') 
-  # 
-  # dtaeStartKNY = as.Date('2020-04-13')
-  # dtaeEndKNY = as.Date('2020-04-17')
   # Declare the state variables and related variables:
   # The values of these variables change over time
   S = E = Ip = Ic = Ia = R = FA = BED = ICU = Z = new_FA = new_DIS = array(0,c(numSteps,length(pop$p_age)))
@@ -204,7 +200,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #date we begin rel
   # Prepare subblocks for states that are subjected to gamma distribution FA, BED, ICU
   F_sub <- ICU_sub <- BED_sub <- list()
   n_age <- length(pop$p_age)
-  n_col_sub = 15
+  n_col_sub = 15 # the number of sub-blocks to be made; equal to the maximum length of delay
   for(i in 1:n_age)
   {
     F_sub[[i]] = array(0,c(numSteps,n_col_sub+1))
@@ -213,42 +209,26 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #date we begin rel
   }
   
   # Prepare delay using gamma distribution
-  rate_IptoF = cm_delay_gamma(d_H,d_H,n_col_sub,dt)$p
+  rate_IptoF = cm_delay_gamma(d_H,d_H,n_col_sub,dt)$p # assuming rate parameter for transition = 1
   rate_ICU = cm_delay_gamma(d_I,d_I,n_col_sub,dt)$p
   rate_BED = cm_delay_gamma(d_B,d_B,n_col_sub,dt)$p
     # # Create dummy state variables for a deterministic formulation to cross-compare
     # FA_det = BED_det = ICU_det = Z_det = cum_Ic = cum_FA = cum_BED = cum_ICU = array(0,c(numSteps,length(pop$p_age)))
     # FA_det[1,] = 0
+  cum_FA = cum_ICU = array(0,c(numSteps,length(pop$p_age)))
     # BED_det[1,] = 0
     # ICU_det[1,] = 0
     # Z_det[1,] = 0
     # cum_Ic[1,] = Ic[1,]
-    # cum_FA[1,] = cum_BED[1,] = cum_ICU[1,] = 0
+     cum_FA[1,]  = cum_ICU[1,] = 0
   
 
   ## INTERVENTIONS 
-  # School closed 2020-03-16, lockdown (intense intervention) started 2020-03-19, end of intense intervention: user-specified 
-  # note that intense intervention is time-varying control by pWorkOpen: proportion of the work force that is working
-  # debug pWorkOpen = c(0.1,0.25,0.5,1)
   tStartIntervention = as.vector(dateStartIntervention - dateStart)+1
-  # tStartSchoolClosure = as.vector(dateStartSchoolClosure - dateStart)+1
-  # tStartVoluntary = as.vector(dateStartVoluntary - dateStart)+1 # for pw = 0.1
-  # tStartKNY = as.vector(dtaeStartKNY - dateStart)+1
-  # tEndKNY = as.vector(dtaeEndKNY - dateStart)+1
-  # tStartIntervention1 = tEndKNY + numWeekStagger[1]*7 + 1 #Slightly relaxed intervention after KNY
-  # tStartIntervention2 = tEndKNY + numWeekStagger[2]*7 + 1 #Lockdown
-  # tStartIntervention3 = tEndKNY + numWeekStagger[3]*7 + 1 #How long an intensive lockdown required?
+  tEndIntervention = months_Intervention*30+tStartIntervention
   tEnd = as.vector(dateEnd - dateStart) + 1
-  # tStartEndClosure = as.vector(dateEndSchoolClosure - dateStart)+1
-  # pwork = array(1,numSteps)
-  # pwork[1:tEnd] =c(rep(1,(tStartVoluntary-0)), # no office closure
-  #                                 rep(pWorkOpen[1],(tEndKNY-tStartVoluntary)), # Voluntary closure - KNY all close but it's accounted
-  #                                 rep(pWorkOpen[2],(tStartIntervention1-tEndKNY)),# no intervention after KNY - probably same as voluntary
-  #                                 rep(pWorkOpen[3],(tStartIntervention2-tStartIntervention1)), # Slightly relaxed intervention
-  #                                 rep(pWorkOpen[4],(tStartIntervention3-tStartIntervention2)), # Lockdown
-  #                                 rep(pWorkOpen[5],(tEnd-tStartIntervention3))
-  #                                   )
-  # 
+ 
+  ## Choose a right intervention on a given stepIndex 
   for (stepIndex in 1: (numSteps-1))
   { 
     #print(stepIndex)
@@ -260,54 +240,26 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,INTERVENTION, #date we begin rel
     if(time[stepIndex] < tStartIntervention)  
     {
       CONSTRAINT = constraintsIntervention$Baseline
+      fIc =1
     }
-    if(time[stepIndex] >= tStartIntervention)  
+    if(time[stepIndex] >= tStartIntervention & time[stepIndex] < tEndIntervention)  
     {
       CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
+      if(INTERVENTION %in% "Self_isolation"||INTERVENTION %in% "Combined"||INTERVENTION %in% "Lockdown")
+      {
+        fIc = 0.65
+      }
+      else{
+        fIc =1
+      }
     }
-    # I0: before school closure, use base-case
-C    # # I1:  Until voluntary period, use 'schcloseonly'
-    # if(time[stepIndex] >= tStartSchoolClosure & time[stepIndex] < tStartVoluntary) 
-    # {
-    #   INTERVENTION = "schcloseonly"   
-    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    # }  
-    # # KNY : until KNY from voluntary closure
-    # if(time[stepIndex] >= tStartVoluntary & time[stepIndex] < tStartKNY) 
-    # {
-    #   INTERVENTION = "schcloseworkplacedist"   
-    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    # }  
-    # # I2:  KNY
-    # if(time[stepIndex] >= tStartKNY & time[stepIndex] < tEndKNY) 
-    # {
-    #   INTERVENTION = "KNY"   
-    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    # }  
-    # # I3: after KNY until Lockdown
-    # if(time[stepIndex] >= tEndKNY & time[stepIndex] < tStartIntervention2 ) 
-    # {
-    #   INTERVENTION = "schcloseworkplacedist"   
-    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    # }  
-    # # I4: During lockdown
-    # if(time[stepIndex] >= tStartIntervention2 & time[stepIndex] < tStartIntervention3 ) 
-    # {
-    #   INTERVENTION = "phnompenhlockdown"   
-    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    # } 
-    # # I5: after lockdown
-    # if(time[stepIndex] >= tStartIntervention3 ) 
-    # {
-    #   INTERVENTION = "schcloseworkplacedist"   
-    #   CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-    # } 
-    # # post outbreak
-    # if(time[stepIndex] >= tRelaxIntervention3)  
-    # {
-    #   CONSTRAINT = constraintsIntervention$postoutbreak
-    # }
-    # 
+    if(time[stepIndex] >= tEndIntervention)  
+    {
+      CONSTRAINT =constraintsIntervention$Baseline 
+      fIc =1
+    }
+   
+  
     
     C = CONSTRAINT[[1]]%*%contacts_cambodia[[1]]+
       CONSTRAINT[[2]]%*%contacts_cambodia[[2]]+
@@ -316,26 +268,20 @@ C    # # I1:  Until voluntary period, use 'schcloseonly'
     
     # calculate the force of infection
     
-    #R0tpostoutbreak = R0t #overwrites the default reduction in R0 post-outbreak
-    # Calculate beta only once per simulation and use this for Rural/Urban (or all provinces) as well
-    # That means maybe prepare beta beforehand by calculating based on the formula before and use this for all provinces
-    #beta = getbeta(R0t = R0t,constraints = constraintsIntervention$base,gamma = gamma_Ia,p_age = pop$p_age,CONTACTMATRIX = contacts_cambodia )
-    # if(pWorkOpen[2]<1) beta_postfirstwave = beta#getbeta(R0t = R0tpostoutbreak,constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age)
-    # if(pWorkOpen[2]>=1) beta_postfirstwave = beta#getbeta(R0t = R0t[2],constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age)
-    # beta = getbeta(R0t = R0t[stepIndex],constraints = constraintsIntervention$base,gamma = gamma,p_age = pop$p_age)
-    # if(time[stepIndex] < tEndIntenseIntervention+0) lambda[stepIndex,] = as.numeric(beta)*(as.matrix(C)%*%as.matrix(Ic[stepIndex,]/N_age) + sub_infectiousness*as.matrix(Isc[stepIndex,]/N_age));
-    # if(time[stepIndex] >= tEndIntenseIntervention+0)lambda[stepIndex,] = as.numeric(beta_postfirstwave)*(as.matrix(C)%*%as.matrix(Ic[stepIndex,]/N_age) + sub_infectiousness*as.matrix(Isc[stepIndex,]/N_age));
-    u = beta*4/3
-    lambda[stepIndex,] = as.numeric(u)*(as.matrix(C)%*%as.matrix((Ic[stepIndex,]+Ip[stepIndex,])/N_age) + f*as.matrix(Ia[stepIndex,]/N_age));
-    
     # Calculate R0
-      fIp = fIs = 1
-      fIa = 0.5
+    fIp  = 1
+    fIa = 0.5
+
+   # beta = rho*u+(1-rho)*u*fIa = u*fIa + (rho-rho*fIa)*u = u*(fIa+rho(1-fIa)) i.e. u=beta/(fIa+rho(1-fIa))
+    u=beta/(fIa+rho*(1-fIa)) # beta estimated for 'typical infectious' individuals which is average of rho Clinical and 1-rho asymptomatic who has 0.5 infectiousness
+    lambda[stepIndex,] = as.numeric(u)*(as.matrix(C)%*%as.matrix((fIc*Ic[stepIndex,]+fIp*Ip[stepIndex,])/N_age) + fIa*as.matrix(Ia[stepIndex,]/N_age));
+    
+   
       
       y = rho
  
       ngm = u*t(t(C) * (
-        y * (fIp * d_P + fIs * d_C) +  #fIp = rep(1, n_groups), fIs = rep(1, n_groups),fIa = rep(0.5, n_groups), relative infectiousness
+        y * (fIp * d_P + fIc * d_C) +  #fIp = rep(1, n_groups), fIs = rep(1, n_groups),fIa = rep(0.5, n_groups), relative infectiousness
           (1 - y) * fIa * d_A))
       
      R_ef[stepIndex] = abs(eigen(ngm)$values[1])
@@ -355,8 +301,10 @@ C    # # I1:  Until voluntary period, use 'schcloseonly'
     numIatoR = gamma_Ia*Ia[stepIndex,]*dt;                             # Ia to R
     
     # Resource model
-    numIptoF   = rbinom(length(numIptoIc), round(numIptoIc), delta)    # Ic to FA
+    numIptoF   = rbinom(length(numIptoIc), round(numIptoIc), delta)    # Ip to FA
     
+    # Error checking
+    # proportion of the number of cumulative ICU needs (sum of numFtoC) out of cumulative number of clinical incidence sum of numIptoF
     
     # Subblock update
         
@@ -370,6 +318,7 @@ C    # # I1:  Until voluntary period, use 'schcloseonly'
           new_FA[stepIndex,age] = num_new_BandC
           numFtoC = rbinom(1, num_new_BandC, epsilon*dt) # Individuals coming out of F into ICU
           numFtoB = num_new_BandC - numFtoC; # Individuals coming out of F into BED
+          cum_ICU[stepIndex+1,age] = cum_ICU[stepIndex,age] + numFtoC #culumulative number of individuals that require ICU
           # They will be distributed to different waiting time for discharge
           # Before that update the F_sub
           # Allocate numIptoF[[age]] if it's >0
@@ -392,7 +341,7 @@ C    # # I1:  Until voluntary period, use 'schcloseonly'
                         prob = rate_ICU)) # assume constant gamma distribution for all age
             ICU_sub[[age]][stepIndex+1,] = ICU_sub[[age]][stepIndex+1,] + add_ICU_sub
           }
-          ICU[stepIndex+1,age] = sum(ICU_sub[[age]][stepIndex+1,])
+          ICU[stepIndex+1,age] = sum(ICU_sub[[age]][stepIndex+1,]) # this is the sum of individuals still staying in ICU
           BED_sub[[age]][stepIndex+1,] <- c(BED_sub[[age]][stepIndex,2:(n_col_sub+1)],0)  
           if(numFtoB>0)
           {
@@ -408,9 +357,10 @@ C    # # I1:  Until voluntary period, use 'schcloseonly'
    
     # # calculate cumulative number of new Ic, FA, BED, ICU
     # cum_Ic[stepIndex+1,] = cum_Ic[stepIndex,] + numEtoIc
-    # cum_FA[stepIndex+1,] = cum_FA[stepIndex,] + numEtoF
+    cum_FA[stepIndex+1,] = cum_FA[stepIndex,] + numIptoF # individuals comeing into F (severe), which waiting for hospitalization
+    
     # cum_BED[stepIndex+1,] = cum_BED[stepIndex,] + numFtoB
-    # cum_ICU[stepIndex+1,] = cum_ICU[stepIndex,] + numFtoC
+   
     
     # # For a deterministic formulation to cross-compare
     # numEtoF_det   = numEtoIc*delta*dt;    # E to FA
@@ -449,7 +399,10 @@ C    # # I1:  Until voluntary period, use 'schcloseonly'
   }
   output = list(S = S, E = E, Ia=Ia,Ic = Ic, Ip = Ip, R = R, BED= BED, ICU=ICU,Z=Z, time = time, lambda=lambda,
                 # BED_det= BED_det, ICU_det=ICU_det,
-                # cum_Ic = cum_Ic, cum_FA = cum_FA, cum_BED = cum_BED, cum_ICU = cum_ICU,
+                # cum_Ic = cum_Ic, 
+                cum_FA = cum_FA, 
+                #cum_BED = cum_BED, 
+                cum_ICU = cum_ICU,new_FA=new_FA,new_DIS=new_DIS,
                 incidence = incidence, N_age= N_age, subclinical = subclinical, 
                 R_ef=R_ef,#rho = rho,
                 dateStart = dateStart, dateEnd = dateEnd)
