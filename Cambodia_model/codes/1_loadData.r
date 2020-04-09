@@ -9,7 +9,7 @@ loadContactMatrices = TRUE
 loadCaseData =TRUE
 loadR0posterior =TRUE
 
-
+num_province <- 4
 ## load data: Population age structure and Contact matrices
 
 # 1) population data for whole Cambodia, rural and urban. Combine data. 
@@ -41,20 +41,26 @@ normalize.contact.matrices <- function(C, popv, make.sym = F){
 # Load contact data for Phnom Penh, Urban, and Rural
 if(loadContactMatrices)
 {
+  # PP
   contact_cambodia <- list()
-  load(paste0('data/pp_60.rdata'))
-  contacts_pp <- phnom_penh # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
-  rm(phnom_penh)
-  contact_cambodia[[1]] <- contacts_pp
-  load(paste0('data/rural_60.rdata'))
-  contacts_rural <- rural1 # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
-  rm(rural1)
-  contact_cambodia[[2]] <- contacts_rural
-  load(paste0('data/urban_60.rdata'))
+  #load(paste0('data/pp_65.rdata')) # don't use Phnom Penh mixing anymore - replace by Urban contact as the sample size being small
+  # contacts_pp <- phnom_penh # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
+  # rm(phnom_penh)
+  
+  # Urban
+  load(paste0('data/urban_65.rdata'))
   contacts_urban <- urban1 # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
-  rm(urban1)
-  contact_cambodia[[3]] <- contacts_urban
-  rm(contacts_pp,contacts_rural,contacts_urban)
+  contact_cambodia[[1]] <- contacts_urban
+  contact_cambodia[[2]] <- contacts_urban
+  # Rural
+  load(paste0('data/rural_65.rdata'))
+  contacts_rural <- rural1 # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
+  contact_cambodia[[3]] <- contacts_rural
+  
+  # Rural pop with Urban contact
+  contact_cambodia[[4]] <- contacts_urban
+ 
+  rm(contacts_rural,contacts_urban,urban1,rural1)
 }
 
 # Check age category
@@ -72,8 +78,8 @@ if(nrow(cambodia_pop)!=nrow(contact_cambodia[[1]][[1]])){
   rm(cambodia_pop)
   # Create a list for the population - in the end it becoems for each province
   cambodia_pop = list()
-  num_province <- 3
-  for(i in 1:num_province)
+  
+  for(i in 1:(num_province-1)) #PP, Urban, Rural, and Rural pop with Urban contact
   {
     dat = cambodia_pop_new[,c(1,i*2,i*2+1)]
     colnames(dat) = c("age","propage","popage")
@@ -81,47 +87,17 @@ if(nrow(cambodia_pop)!=nrow(contact_cambodia[[1]][[1]])){
     dat$popage = as.numeric(as.character(dat$popage))
     cambodia_pop[[i]] = dat
   }
-  
+  cambodia_pop[[num_province]] = cambodia_pop[[3]] 
   # temp = cambodia_rr_ur[,c(2:3)]*totN
   # cambodia_pop[[2]] = data.frame(cbind(lower.age.limit=cambodia_pop_new[,1],popage=temp[,1],propage=cambodia_rr_ur[,2])) #rural
   # cambodia_pop[[3]] = data.frame(cbind(lower.age.limit=cambodia_pop_new[,1],popage=temp[,2],propage=cambodia_rr_ur[,3])) #urban
   rm(cambodia_pop_new, df1,df2,df3)
           }
 
-# case age distribution - this needs modification
-if(loadCaseData)
-{
-  wuhancaseraw = read.csv('data/wuhan_pop_case_dist.csv',as.is = TRUE)
-  caseage = rep(wuhancaseraw$wuhan,each=2)/2
-  wuhancase = data.frame(agegroup = 1:16, caseage = c(caseage[1:15],sum(caseage[16:20])))
-  rm(wuhancaseraw,caseage)
-}
 
-if(loadR0posterior) # this needs modification too
-{
-  # --- read in R0 posterior
-  R0_plot <-read.csv(paste0("data/out_R0.csv"))
-  R0_dates <- read.csv(paste0('data/out_date.csv'))
-  start_date <- as.Date(R0_dates[1,1]) # first case
-  end_date <- as.Date(R0_dates[nrow(R0_dates),1]) # period to forecast ahead
-  date_range <- seq.Date(start_date,end_date,1)
-  
-  # extract all estimates from 01.01.2020 - 23.01.2020
-  R0_posterior <- R0_plot[which(date_range == as.Date("2020-01-01") ):which(date_range == as.Date("2020-01-23")),]
-  range(R0_posterior)
-  r0posterior = as.vector((unlist(R0_posterior)))
-  par(mfrow=c(2,1))
-  R0_dense = (density((r0posterior)))
-  plot(x = R0_dense$x,y=R0_dense$y,type='l',xlab='R0',ylab='Density',lwd=2)
-  R0_dense = (density(log(r0posterior)))
-  plot(x = R0_dense$x,y=R0_dense$y,type='l',xlab='ln(R0)',ylab='Density',lwd=2)
-  
-  
-  rm(R0_dense,R0_plot,R0_posterior,date_range,end_date,start_date)
-  
-}
-
-
-rm(loadContactMatrices,loadPopData,loadR0posterior,loadCaseData)
+# Load cambodia delta table
+cambodia_delta = read.csv('data/cambodia_delta_table.csv',as.is = TRUE)
+delta = cambodia_delta$delta
+rm(loadContactMatrices,loadPopData,cambodia_delta)
 
 
