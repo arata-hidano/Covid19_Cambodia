@@ -1,0 +1,26 @@
+id,full_name,short_name,name_in_urban_rural_pop,pop_rural,pop_urban
+1,Banteay Meanchey,BM,BanteayMeanchey,0.732,0.268
+2,Battambang,B,Battambang,0.824,0.176
+3,Kampong Cham,K_Cham,KampongCham,0.93,0.07
+4,Kampong Chhnang,K_Chhang,KampongChhnang,0.909,0.091
+5,Kampong Speu,K_S,KampongSpeu,0.924,0.076
+6,Kampong Thom,K_T,KampongThom,0.95,0.05
+7,Kampot,Kam,Kampot,0.918,0.082
+8,Kandal,Kan,Kandal,0.845,0.155
+9,Koh Kong,K_K,KohKong,0.693,0.307
+10,Kratie,Krat,Kratie,0.887,0.113
+11,Mondul Kiri,MK,MondulKiri,0.92,0.08
+12,Phnom Penh,PP,PhnomPenh,0.064,0.936
+13,Preah Vihear,P_Vih,PreahVihear,0.938,0.062
+14,Prey Veng,P_Ve,PreyVeng,0.965,0.035
+15,Pursat,Pur,Pursat,0.935,0.065
+16,Ratanak Kiri,RK,RatanakKiri,0.872,0.128
+17,Siem Reap,S_R,SiemReap,0.806,0.194
+18,Preah Sihanouk,Pr_Sih,PreahSihanouk,0.596,0.404
+19,Stung Treng,St_Tr,StungTreng,0.848,0.152
+20,Svay Rieng,Sv_Ri,SvayRieng,0.965,0.035
+21,Takeo,Tak,Takeo,0.983,0.017
+22,Otdar Meanchey,O_M,OtdarMeanchey,0.899,0.101
+23,Kep,Kep,Kep,0.869,0.131
+24,Pailin,Pail,Pailin,0.778,0.222
+25,Tbong Khmum,Th_Kh,,,
