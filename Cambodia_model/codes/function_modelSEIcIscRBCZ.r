@@ -10,10 +10,12 @@ loadPopInfo = function(POP)
   return(pop)
 }
 # Argument - nrow of contact matrix and x is an age group indicator for the highest age group affected by school close (x is parameter effectively obsolete)
-loadInterventions = function(nrow_contact,x,province,INTERVENTION)
+loadInterventions = function(nrow_contact,x,province,INTERVENTION,open_p)
 {
-  so_dis <- c(0.51,0.57,0.73,0.73) # social distancing 1 (work) parameters for each area, update when using all province
-  lockdown <- c(0.21,0.28,0.48,0.48) # workopen during lockdown for each area
+  #so_dis <- c(0.51,0.57,0.73,0.73) # social distancing 1 (work) parameters for each area, update when using all province
+  #lockdown <- c(0.21,0.28,0.48,0.48) # workopen during lockdown for each area
+  so_dis <- open_p[[1]]/100
+  lockdown <- open_p[[2]]/100
   list(
     # constraints under a DO-NOTHING scenario 
     Baseline =list(home_H = diag(1,nrow_contact,nrow_contact),
@@ -62,7 +64,7 @@ loadInterventions = function(nrow_contact,x,province,INTERVENTION)
                     home_NH = diag(0.25,nrow_contact,nrow_contact),
                     work = diag(c(rep(so_dis[province],nrow_contact-1),rep(0.25,1))),
                     school = diag(0,nrow_contact,nrow_contact),
-                    others = diag(0.5,nrow_contact,nrow_contact)) ,
+                    others = diag(c(rep(0.5,nrow_contact-1),rep(0.25,1)))) ,
     # Lockdown
     Lockdown = list(home_H = diag(1,nrow_contact,nrow_contact),
                     home_NH = diag(0.1,nrow_contact,nrow_contact),
@@ -135,7 +137,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
                                        months_Intervention, # duration of intervention in months
                                        cambodia_pop = cambodia_pop,
                                       contacts_cambodia=contacts_cambodia, pInfected,
-                                    x,province
+                                    x,province,open_p
                                     )
 {
 
@@ -250,7 +252,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
   { 
     #print(stepIndex)
     # load plausible intervetions 
-    constraintsIntervention = loadInterventions(nrow_contact,x,province,INTERVENTION)
+    constraintsIntervention = loadInterventions(nrow_contact,x,province,INTERVENTION,open_p)
     
     ## Age- and location-specific contact rates for the given interventions 
     # Before intervention

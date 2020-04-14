@@ -202,7 +202,7 @@ cambodia_delta = read.csv('data/cambodia_delta_table.csv',as.is = TRUE)
 delta = cambodia_delta$delta
 rm(loadContactMatrices,loadPopData,cambodia_delta)
 
-# Load health resource data
+# Load health resource data ICU and BED
 resource_data = read.csv('data/cambodia_health_resource.csv',as.is = TRUE)
 resource_list = list(c(resource_data[,3],17.4),c(resource_data[,2],752.6)) #use the same value of Kampong Cham for last prov
 
