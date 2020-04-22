@@ -381,12 +381,9 @@ simulateOutbreakSEIcIscRBCZ_simultaneous = function(beta,rho,delta,FIRST_INTERVE
     params[[3]] = fIc
      
     # Apply function of daily updating to each province
-   # pop_province = mapply(daily_update, pop_province, seq(1:length(province)),params,SIMPLIFY=FALSE)
-    for(i in 1:length(province))
-    {
-      pop_province[[i]] = daily_update(pop_province[[i]],i,params)
-    }
-   
+
+      pop_province = mapply(daily_update,pop=pop_province,province=seq(1:length(province)),MoreArgs = list(params=params),SIMPLIFY=F)
+
     
   }
   # Variable to export - minimise the data amount
