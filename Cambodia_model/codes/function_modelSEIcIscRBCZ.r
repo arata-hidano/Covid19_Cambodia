@@ -10,12 +10,17 @@ loadPopInfo = function(POP)
   return(pop)
 }
 # Argument - nrow of contact matrix and x is an age group indicator for the highest age group affected by school close (x is parameter effectively obsolete)
-loadInterventions = function(nrow_contact,x,province,INTERVENTION,open_p)
+loadInterventions = function(nrow_contact,province,open_p)
 {
   #so_dis <- c(0.51,0.57,0.73,0.73) # social distancing 1 (work) parameters for each area, update when using all province
   #lockdown <- c(0.21,0.28,0.48,0.48) # workopen during lockdown for each area
   so_dis <- open_p[[1]]/100
   lockdown <- open_p[[2]]/100
+  if(province>25) # that means country level simulation and 
+  {
+    so_dis = c(so_dis,1)
+    lockdown = c(lockdown,1)
+  }
   list(
     # constraints under a DO-NOTHING scenario 
     Baseline =list(home_H = diag(1,nrow_contact,nrow_contact),
@@ -70,16 +75,44 @@ loadInterventions = function(nrow_contact,x,province,INTERVENTION,open_p)
                     home_NH = diag(0.1,nrow_contact,nrow_contact),
                         work = diag(lockdown[province],nrow_contact,nrow_contact),
                         school = diag(0,nrow_contact,nrow_contact),
-                    others = diag(0.1,nrow_contact,nrow_contact)) 
-  
-    
+                    others = diag(0.1,nrow_contact,nrow_contact)), 
+    # Combined allowing school
+    Combined_school = list(home_H = diag(1,nrow_contact,nrow_contact),
+                    home_NH = diag(0.25,nrow_contact,nrow_contact),
+                    work = diag(c(rep(so_dis[province],nrow_contact-1),rep(0.25,1))),
+                    school = diag(1,nrow_contact,nrow_contact),
+                    others = diag(c(rep(0.5,nrow_contact-1),rep(0.25,1)))) ,
+    # Combined allowing office
+    Combined_work = list(home_H = diag(1,nrow_contact,nrow_contact),
+                           home_NH = diag(0.25,nrow_contact,nrow_contact),
+                         work = diag(c(rep(1,nrow_contact-1),rep(0.25,1))),
+                           school = diag(0,nrow_contact,nrow_contact),
+                           others = diag(c(rep(0.5,nrow_contact-1),rep(0.25,1)))) ,
+    # Combined allowing school & office
+    Combined_school_work = list(home_H = diag(1,nrow_contact,nrow_contact),
+                         home_NH = diag(0.25,nrow_contact,nrow_contact),
+                         work = diag(c(rep(1,nrow_contact-1),rep(0.25,1))),
+                         school = diag(1,nrow_contact,nrow_contact),
+                         others = diag(c(rep(0.5,nrow_contact-1),rep(0.25,1)))) ,
+    # Combined school work other
+    Combined_school_work_other = list(home_H = diag(1,nrow_contact,nrow_contact),
+                                home_NH = diag(0.25,nrow_contact,nrow_contact),
+                                work =diag(c(rep(1,nrow_contact-1),rep(0.25,1))),
+                                school = diag(1,nrow_contact,nrow_contact),
+                                others = diag(c(rep(1,nrow_contact-1),rep(0.25,1)))),
+    # School + WOrk + Public
+    SWP = list(home_H = diag(1,nrow_contact,nrow_contact),
+                            home_NH = diag(1,nrow_contact,nrow_contact),
+                            work = diag(so_dis[province],nrow_contact,nrow_contact),
+                            school = diag(0,nrow_contact,nrow_contact),
+                            others = diag(0.5,nrow_contact,nrow_contact))
     )
   
 }
 
 
 
-getbeta = function(R0t,gamma,p_age,CONTACTMATRIX = contacts_cambodia)
+getbeta = function(R0t,p_age,CONTACTMATRIX = contacts_cambodia)
 {
   # 1) R0
   # 2) gamma = removal rate  
@@ -100,6 +133,14 @@ getbeta = function(R0t,gamma,p_age,CONTACTMATRIX = contacts_cambodia)
     CONTACTMATRIX[[4]]+
     CONTACTMATRIX[[5]]
   
+  fIp = fIc = 1
+  fIa = 0.5
+  d_P = 1.5;                                               # Mean duration of infectiousness (days)
+  d_C = 4
+  d_A = 5.5 ;
+  
+  gamma = 1-exp(-1/(rho * (fIp * d_P + fIc * d_C) + (1 - rho) * fIa * d_A))
+  
   
   if (calculate_transmission_probability==1){
     M = C
@@ -109,8 +150,10 @@ getbeta = function(R0t,gamma,p_age,CONTACTMATRIX = contacts_cambodia)
         M[i,j] = C[i,j]*p_age[i]/p_age[j]
       }
     }
-    eig = eigen(M)
-    beta = R0t*gamma/max(Re(eig$values))  # reverse engineer beta from the R0 and gamma 
+    eig = eigen(M*1/gamma)
+    # beta = R0t*gamma/max(Re(eig$values))  # reverse engineer beta from the R0 and gamma 
+    beta = R0t/max(Re(eig$values))  # reverse engineer beta from the R0 and gamma 
+    
     beta = beta
   }else{
     beta = 0.025#0.05
@@ -132,15 +175,17 @@ cm_delay_gamma = function(mu, shape, t_max, t_step)
 
 
 simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of intervention
+                                       SECOND_INTERVENTION, THIRD_INTERVENTION,
                                        dateStart, # date we start simulation 
                                        dateStartIntervention, # date we start intervention
                                        months_Intervention, # duration of intervention in months
                                        cambodia_pop = cambodia_pop,
                                       contacts_cambodia=contacts_cambodia, pInfected,
-                                    x,province,open_p
+                                    province,open_p,threshold_em,threshold_re,ICU_cap, BED_cap,trigger_model,calculate_R
                                     )
 {
-
+# now if we simulate all province at the same time what's the best?
+# we need each province has all data structure required, possibly as a list
   
   
   # Load population information
@@ -194,7 +239,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
   # Declare the state variables and related variables:
   # The values of these variables change over time
   S = E = Ip = Ic = Ia = R = FA = BED = ICU = Z = new_FA = new_DIS = array(0,c(numSteps,length(pop$p_age)))
-  lambda = incidence = subclinical = cumulativeIncidence = array(0,c(numSteps,length(pop$p_age)))
+  lambda = incidence = subclinical = clinical_incidence = cumulativeIncidence = array(0,c(numSteps,length(pop$p_age)))
   time = array(0,numSteps)
   R_ef = array(0,numSteps)
   
@@ -211,6 +256,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
   Z[1,] = 0
   incidence[1,] = 0;
   subclinical[1,] = 0;
+  clinical_incidence[1,] = 0
   time[1] = 0;
   new_FA[1,] = 0
   new_DIS[1,] = 0
@@ -238,48 +284,128 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
     # Z_det[1,] = 0
     # cum_Ic[1,] = Ic[1,]
      cum_FA[1,]  = cum_ICU[1,] = 0
-  
+     moving_sum = array(0,c(numSteps,2))
 
   ## INTERVENTIONS 
   tStartIntervention = as.vector(dateStartIntervention - dateStart)
   tEndIntervention = months_Intervention*30+tStartIntervention
   tEnd = as.vector(dateEnd - dateStart) + 1
- 
+  emergency = 0
+  triggerd = 0
+  decline = 0
+  stop_intervention = 0
+  first_trigger = second_trigger = 0
+  threshold_capacity = ICU_cap + BED_cap
+  constraintsIntervention = loadInterventions(nrow_contact,province,open_p)
   ## Choose a right intervention on a given stepIndex 
   # Note time is staring at 0
   # Intervention start on day X, no need for +1
   for (stepIndex in 1: (numSteps-1))
   { 
+    if(trigger_model==1)
+    {
+      
+    
     #print(stepIndex)
     # load plausible intervetions 
-    constraintsIntervention = loadInterventions(nrow_contact,x,province,INTERVENTION,open_p)
-    
+    # flag if the number of new ICU + BED requirement over last 7 days exceed X% of the ICU + BED
+    if(stop_intervention==0 & stepIndex>=8)
+    {
+      # sum of incidence of admission in the last 7 days
+      sum_admission_7d = 0
+      for(i in 1:7)
+      {
+        sum_admission_7d = sum_admission_7d + sum(new_FA[stepIndex-i,]) 
+      }
+      moving_sum[stepIndex,1] = sum_admission_7d
+      if(moving_sum[stepIndex,1]<moving_sum[stepIndex-1,1]){
+        moving_sum[stepIndex,2] = 1
+      }
+      if(sum(moving_sum[(stepIndex-6):stepIndex,2]) >= 5)
+        {decline =1}
+      if((sum_admission_7d >= (threshold_capacity*threshold_em)) & emergency ==0)
+      {
+        emergency = 1
+        if(triggerd==0)
+        {
+          triggerd = 1 # once triggered, this variable remains 1
+          first_trigger = stepIndex
+        }
+        CONSTRAINT = constraintsIntervention[[SECOND_INTERVENTION]] 
+        if(SECOND_INTERVENTION %in% "Self_isolation"||length(grep("^Combined",SECOND_INTERVENTION))==1||SECOND_INTERVENTION %in% "Lockdown")
+        {
+          fIc = 0.65
+        }
+        else{
+          fIc =1
+        }
+      }
+      if((sum_admission_7d < (threshold_capacity*threshold_re)) & emergency ==1 & decline == 1)
+      {
+        emergency = 0
+        second_trigger = stepIndex
+        stop_intervention = 1
+        CONSTRAINT = constraintsIntervention[[THIRD_INTERVENTION]] 
+        if(THIRD_INTERVENTION %in% "Self_isolation"||length(grep("^Combined",THIRD_INTERVENTION))==1||THIRD_INTERVENTION %in% "Lockdown")
+        {
+          fIc = 0.65
+        }
+        else{
+          fIc =1
+        }
+      }
+    }
+   
     ## Age- and location-specific contact rates for the given interventions 
     # Before intervention
-    if(time[stepIndex] < tStartIntervention)  # Day 0 to tStartIntervention-1 = length equal to tStartIntervention value
+    if(triggerd==0) # if any triiger did not happen yet
     {
-      CONSTRAINT = constraintsIntervention$Baseline
-      fIc =1
-    }
-    if(time[stepIndex] >= tStartIntervention & time[stepIndex] < tEndIntervention)  
-    {
-      CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
-      if(INTERVENTION %in% "Self_isolation"||INTERVENTION %in% "Combined"||INTERVENTION %in% "Lockdown")
+      if(time[stepIndex] < tStartIntervention)  # Day 0 to tStartIntervention-1 = length equal to tStartIntervention value
       {
-        fIc = 0.65
+        CONSTRAINT = constraintsIntervention$Baseline
+        fIc =1
       }
-      else{
+      if(time[stepIndex] >= tStartIntervention & time[stepIndex] < tEndIntervention)  
+      {
+        CONSTRAINT = constraintsIntervention[[INTERVENTION]] 
+        if(INTERVENTION %in% "Self_isolation"||INTERVENTION %in% "Combined"||INTERVENTION %in% "Lockdown")
+        {
+          fIc = 0.65
+        }
+        else{
+          fIc =1
+        }
+      }
+      if(time[stepIndex] >= tEndIntervention)  
+      {
+        CONSTRAINT =constraintsIntervention$Baseline 
         fIc =1
       }
     }
-    if(time[stepIndex] >= tEndIntervention)  
+    }else # if not trigger model
     {
-      CONSTRAINT =constraintsIntervention$Baseline 
-      fIc =1
+      if(stepIndex==1)
+      {
+        CONSTRAINT = constraintsIntervention$Baseline
+        fIc =1
+      }
+      if(stepIndex >= tStartIntervention & stepIndex < tEndIntervention)
+      {
+        CONSTRAINT = constraintsIntervention[[SECOND_INTERVENTION]] 
+        if(SECOND_INTERVENTION %in% "Self_isolation"||SECOND_INTERVENTION %in% "Combined"||SECOND_INTERVENTION %in% "Lockdown")
+        {
+          fIc = 0.65
+        }
+        else{
+          fIc =1
+        }
+      }
+      if(stepIndex >= tEndIntervention)
+      {
+        CONSTRAINT = constraintsIntervention$Baseline
+        fIc =1
+      }
     }
-   
-  
-    
     C = CONSTRAINT[[1]]%*%contacts_cambodia[[1]]+
       CONSTRAINT[[2]]%*%contacts_cambodia[[2]]+
       CONSTRAINT[[3]]%*%contacts_cambodia[[3]]+
@@ -293,18 +419,22 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
     fIa = 0.5
 
    # beta = rho*u+(1-rho)*u*fIa = u*fIa + (rho-rho*fIa)*u = u*(fIa+rho(1-fIa)) i.e. u=beta/(fIa+rho(1-fIa))
-    u=beta/(fIa+rho*(1-fIa)) # beta estimated for 'typical infectious' individuals which is average of rho Clinical and 1-rho asymptomatic who has 0.5 infectiousness
+    u = rep(beta,n_age)
+    # u=beta/(fIa+rho*(1-fIa)) # beta estimated for 'typical infectious' individuals which is average of rho Clinical and 1-rho asymptomatic who has 0.5 infectiousness
     lambda[stepIndex,] = as.numeric(u)*(as.matrix(C)%*%as.matrix((fIc*Ic[stepIndex,]+fIp*Ip[stepIndex,])/N_age) + fIa*as.matrix(Ia[stepIndex,]/N_age));
     
    
       
       y = rho
- 
-      ngm = u*t(t(C) * (
-        y * (fIp * d_P + fIc * d_C) +  #fIp = rep(1, n_groups), fIs = rep(1, n_groups),fIa = rep(0.5, n_groups), relative infectiousness
-          (1 - y) * fIa * d_A))
+  if(calculate_R==1)
+  {
+    ngm = u*t(t(C) * (
+      y * (fIp * d_P + fIc * d_C) +  #fIp = rep(1, n_groups), fIs = rep(1, n_groups),fIa = rep(0.5, n_groups), relative infectiousness
+        (1 - y) * fIa * d_A))
+    
+    R_ef[stepIndex] = abs(eigen(ngm)$values[1])
+  }
       
-     R_ef[stepIndex] = abs(eigen(ngm)$values[1])
     
     
     
@@ -335,7 +465,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
         {
           # Update F_sub
           num_new_BandC = F_sub[[age]][stepIndex,1] # coming out from F, and admission to hospital = number of new hospital admission
-          new_FA[stepIndex,age] = num_new_BandC
+          new_FA[stepIndex+1,age] = num_new_BandC
           numFtoC = rbinom(1, num_new_BandC, epsilon*dt) # Individuals coming out of F into ICU
           numFtoB = num_new_BandC - numFtoC; # Individuals coming out of F into BED
           cum_ICU[stepIndex+1,age] = cum_ICU[stepIndex,age] + numFtoC #culumulative number of individuals that require ICU
@@ -412,21 +542,36 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
     # Z_det[stepIndex+1,]   = Z_det[stepIndex,]+numBtoZ_det+numCtoZ_det;
     # 
     incidence[stepIndex+1,] = (numEtoIa+numEtoIp)/dt;
+    clinical_incidence[stepIndex+1,] = (numEtoIp)/dt;
     subclinical[stepIndex+1,] = numEtoIa/dt;
     time[stepIndex+1] = time[stepIndex]+dt;
 
     
   }
-  output = list(S = S, E = E, Ia=Ia,Ic = Ic, Ip = Ip, R = R, BED= BED, ICU=ICU,Z=Z, time = time, lambda=lambda,
-                # BED_det= BED_det, ICU_det=ICU_det,
-                # cum_Ic = cum_Ic, 
-                cum_FA = cum_FA, 
-                #cum_BED = cum_BED, 
-                cum_ICU = cum_ICU,new_FA=new_FA,new_DIS=new_DIS,
-                incidence = incidence, N_age= N_age, subclinical = subclinical, 
-                R_ef=R_ef,#rho = rho,
-                dateStart = dateStart, dateEnd = dateEnd)
+  output = list(
+    # S = S, E = E, Ia=Ia,
+                Ic = Ic, 
+                # Ip = Ip, R = R, 
+                BED= BED, ICU=ICU,
+                # Z=Z, 
+                # time = time, lambda=lambda,
+                # # BED_det= BED_det, ICU_det=ICU_det,
+                # # cum_Ic = cum_Ic, 
+                # cum_FA = cum_FA, 
+                # #cum_BED = cum_BED, 
+                # cum_ICU = cum_ICU,
+                new_FA=new_FA,
+                #new_DIS=new_DIS,
+                 incidence = incidence,
+                clinical_incidence=clinical_incidence,
+                #N_age= N_age, subclinical = subclinical, 
+                 R_ef=R_ef,#rho = rho,
+                # dateStart = dateStart, dateEnd = dateEnd,triggerd=triggerd,
+                d_stringent = second_trigger - first_trigger,decline=decline)
+  rm(S,E,Ia,Ic,Ip,R,BED,ICU,Z,time,lambda,cum_ICU,cum_FA,incidence,
+     subclinical,BED_sub,ICU_sub,F_sub,new_DIS,new_FA,R_ef,contacts_cambodia,cambodia_pop, C)
   return(output)
+  
 }
 
 
