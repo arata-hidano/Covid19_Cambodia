@@ -2,6 +2,7 @@ require(data.table)
 require(Matrix)
 require(matrixcalc)
 require(dplyr)
+require(rlist)
 ## load data: Cambodia's population age structure and Contact matrices
 
 loadPopData = TRUE
@@ -70,7 +71,7 @@ if(ProvinceModel)
   } 
    
  
-}# index_use is the index for province to use (except PP), rural_vector gives a prop of rural in each province, pop_prov gives age structure
+}# index_use is the index for province to use, rural_vector gives a prop of rural in each province, pop_prov gives age structure
 
 
 
@@ -104,15 +105,18 @@ if(loadContactMatrices)
   # rm(phnom_penh)
   
   # Urban
-  load(paste0('data/urban_65.rdata'))
+  load(paste0('data/urban_emp_weighted.rdata'))
   contacts_urban <- urban1 # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
   contact_cambodia[[1]] <- contacts_urban
   contact_cambodia[[2]] <- contacts_urban
   # Rural
-  load(paste0('data/rural_65.rdata'))
+  load(paste0('data/rural_emp_weighted.rdata'))
   contacts_rural <- rural1 # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
   contact_cambodia[[3]] <- contacts_rural
-  
+  # Overall
+  load(paste0('data/all_emp_weighted.rdata'))
+  contacts_all <- overall # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
+  contact_cambodia[[4]] <- contacts_all
   # # Rural pop with Urban contact
   # contact_cambodia[[4]] <- contacts_urban
  
@@ -136,12 +140,13 @@ if(nrow(cambodia_pop)!=nrow(contact_cambodia[[1]][[1]]))
     rm(cambodia_pop)
   }
   else{ # if running Province model
-    df1 = cambodia_pop[1:nrow_contact,c(1:3)] #extract Phnom Penh
-    df3 = as.numeric(colSums(cambodia_pop[nrow_contact:nrow(cambodia_pop),c(2:3)]))
-    df1[nrow_contact,c(2:3)] = df3
-    PhnomPenh = df1
-    colnames(PhnomPenh) = c("age","propage","popage")
-    rm(cambodia_pop)
+    # NOT USING 2013 Phnom Penh data anymore!
+    # df1 = cambodia_pop[1:nrow_contact,c(1:3)] #extract Phnom Penh
+    # df3 = as.numeric(colSums(cambodia_pop[nrow_contact:nrow(cambodia_pop),c(2:3)]))
+    # df1[nrow_contact,c(2:3)] = df3
+    # PhnomPenh = df1
+    # colnames(PhnomPenh) = c("age","propage","popage")
+    # rm(cambodia_pop)
     if(length(prov_age_structure)!=nrow_contact) # now check age category for other provinces
     {
       for(i in 1:length(pop_prov))
@@ -154,7 +159,8 @@ if(nrow(cambodia_pop)!=nrow(contact_cambodia[[1]][[1]]))
       }
      
     }
-    pop_prov[[12]] = PhnomPenh #replace Phnom Penh wth 2019 census data
+    # pop_prov[[12]] = PhnomPenh #replace Phnom Penh 
+
   }
   
   # Create a list for the population - in the end it becoems for each province
@@ -194,7 +200,43 @@ if(ProvinceModel==TRUE)
      }
     temp_contact[[i]] = contact
   }
+ 
+
+}
+
+# Add country
+# Add country with unadjusted matrices[26] and one with rural/urban adjusted matrices[27]
+if(one_country_model==1)
+{
+  # country_pop = read.csv('data/cambodia_population_2019.csv',as.is = TRUE)
+  # df1 <- country_pop[1:(nrow_contact-1),]
+  # df2 <- as.numeric(sum(country_pop[nrow_contact:nrow(country_pop),]))
+  # df3 <- c(country_pop[nrow_contact,1],df2)
+  #names(df3) <- colnames(df1)
+  # temp <- 
+  #   rbind(df1,df3)
+  # colnames(temp) = c("Age","popage")
+  # propage = temp$popage/(sum(temp$popage))
+  # popage = temp$popage
+  popage = array(0,c(nrow_contact,1))
+  for(i in 1:25)
+  {
+    temp_age = cambodia_pop[[i]]$popage
+    popage = popage + temp_age
+  }
+  propage = popage/sum(popage)
+  country_pop = cbind.data.frame(propage=propage,popage=popage)
+  # prepare two country data - one with nonadjusted contact, one with rural/urban adjusted matrices
+  cambodia_pop = list.append(cambodia_pop,country_pop,country_pop)
+  contact1 = lapply(contact_cambodia[[2]],FUN= function(x) x*0.231)
+  contact2 = lapply(contact_cambodia[[3]],FUN= function(x) x*0.769)
+  adjusted_contact = mapply(function(x,y)x+y,x=contact1,y=contact2,SIMPLIFY = FALSE)
+    
+  temp_contact = list.append(temp_contact,contact_cambodia[[4]],adjusted_contact)
   rm(contact_cambodia)
+  contact_cambodia = temp_contact
+}else
+{
   contact_cambodia = temp_contact
 }
 # Load cambodia delta table
@@ -204,5 +246,12 @@ rm(loadContactMatrices,loadPopData,cambodia_delta)
 
 # Load health resource data ICU and BED
 resource_data = read.csv('data/cambodia_health_resource.csv',as.is = TRUE)
-resource_list = list(c(resource_data[,3],17.4),c(resource_data[,2],752.6)) #use the same value of Kampong Cham for last prov
+ICU = c(resource_data[,3],17.4)
+BED = c(resource_data[,2],752.6)
+if(one_country_model==1)
+{
+  ICU = c(ICU,sum(ICU),sum(ICU))
+  BED = c(BED,sum(BED),sum(BED))
+}
+resource_list = list(ICU,BED) #use the same value of Kampong Cham for last prov
 
