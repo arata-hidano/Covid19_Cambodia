@@ -1,13 +1,13 @@
 # Choose models to run
 # Running Cambodia as one population? Choose 1 if yes otherwise 0
-one_country_model = 0
+one_country_model =0
 # Producing figure 3? Choose 1 if yes otherwise 0
-fig3 = 0
+fig3 = 1
 # Use same beta (calculated based on Phnom Penh contact) for all provinces? Choose 1 if yes otherwise 0
 same_beta = 0
 # Do you need to calculate R0? Choose 1 if yes otherwise 0
-calculate_R = 0
-
+calculate_R = 1
+synthetic = 0
 # load relevant the data files
 source('codes/1_loadData.r')
 source('codes/1_loadOpenProb.r')

@@ -16,6 +16,7 @@ loadInterventions = function(nrow_contact,province,open_p)
   #lockdown <- c(0.21,0.28,0.48,0.48) # workopen during lockdown for each area
   so_dis <- open_p[[1]]/100
   lockdown <- open_p[[2]]/100
+  home_reduction = 0.5
   if(province>25) # that means country level simulation and 
   {
     so_dis = c(so_dis,1)
@@ -48,7 +49,7 @@ loadInterventions = function(nrow_contact,province,open_p)
                       others = diag(0.5,nrow_contact,nrow_contact)) ,
     # constraints under limiting household visitors 
     Social_distance3 = list(home_H = diag(1,nrow_contact,nrow_contact),
-                            home_NH = diag(0.25,nrow_contact,nrow_contact),
+                            home_NH = diag(home_reduction,nrow_contact,nrow_contact),
                             work = diag(1,nrow_contact,nrow_contact),
                             school = diag(1,nrow_contact,nrow_contact),
                             others = diag(1,nrow_contact,nrow_contact)) ,
@@ -66,7 +67,7 @@ loadInterventions = function(nrow_contact,province,open_p)
                    others = diag(1,nrow_contact,nrow_contact)),
     # combined of all
     Combined = list(home_H = diag(1,nrow_contact,nrow_contact),
-                    home_NH = diag(0.25,nrow_contact,nrow_contact),
+                    home_NH = diag(home_reduction,nrow_contact,nrow_contact),
                     work = diag(c(rep(so_dis[province],nrow_contact-1),rep(0.25,1))),
                     school = diag(0,nrow_contact,nrow_contact),
                     others = diag(c(rep(0.5,nrow_contact-1),rep(0.25,1)))) ,
@@ -78,25 +79,25 @@ loadInterventions = function(nrow_contact,province,open_p)
                     others = diag(0.1,nrow_contact,nrow_contact)), 
     # Combined allowing school
     Combined_school = list(home_H = diag(1,nrow_contact,nrow_contact),
-                    home_NH = diag(0.25,nrow_contact,nrow_contact),
+                    home_NH = diag(home_reduction,nrow_contact,nrow_contact),
                     work = diag(c(rep(so_dis[province],nrow_contact-1),rep(0.25,1))),
                     school = diag(1,nrow_contact,nrow_contact),
                     others = diag(c(rep(0.5,nrow_contact-1),rep(0.25,1)))) ,
     # Combined allowing office
     Combined_work = list(home_H = diag(1,nrow_contact,nrow_contact),
-                           home_NH = diag(0.25,nrow_contact,nrow_contact),
+                           home_NH = diag(home_reduction,nrow_contact,nrow_contact),
                          work = diag(c(rep(1,nrow_contact-1),rep(0.25,1))),
                            school = diag(0,nrow_contact,nrow_contact),
                            others = diag(c(rep(0.5,nrow_contact-1),rep(0.25,1)))) ,
     # Combined allowing school & office
     Combined_school_work = list(home_H = diag(1,nrow_contact,nrow_contact),
-                         home_NH = diag(0.25,nrow_contact,nrow_contact),
+                         home_NH = diag(home_reduction,nrow_contact,nrow_contact),
                          work = diag(c(rep(1,nrow_contact-1),rep(0.25,1))),
                          school = diag(1,nrow_contact,nrow_contact),
                          others = diag(c(rep(0.5,nrow_contact-1),rep(0.25,1)))) ,
     # Combined school work other
     Combined_school_work_other = list(home_H = diag(1,nrow_contact,nrow_contact),
-                                home_NH = diag(0.25,nrow_contact,nrow_contact),
+                                home_NH = diag(home_reduction,nrow_contact,nrow_contact),
                                 work =diag(c(rep(1,nrow_contact-1),rep(0.25,1))),
                                 school = diag(1,nrow_contact,nrow_contact),
                                 others = diag(c(rep(1,nrow_contact-1),rep(0.25,1)))),
@@ -112,7 +113,7 @@ loadInterventions = function(nrow_contact,province,open_p)
 
 
 
-getbeta = function(R0t,p_age,CONTACTMATRIX = contacts_cambodia)
+getbeta = function(R0t,p_age,CONTACTMATRIX = contacts_cambodia,dparams)
 {
   # 1) R0
   # 2) gamma = removal rate  
@@ -125,8 +126,8 @@ getbeta = function(R0t,p_age,CONTACTMATRIX = contacts_cambodia)
   n = length(p_age)
   calculate_transmission_probability = 1
 
-  Csym <- lapply(CONTACTMATRIX, function(x, p_age) (x + t(x)*((p_age)%*%t(1/p_age)))/2, p_age) # make sure contacts are reciprocal
-  CONTACTMATRIX=Csym
+  # Csym <- lapply(CONTACTMATRIX, function(x, p_age) (x + t(x)*((p_age)%*%t(1/p_age)))/2, p_age) # make sure contacts are reciprocal
+  # CONTACTMATRIX=Csym
   C = CONTACTMATRIX[[1]]+
     CONTACTMATRIX[[2]]+
     CONTACTMATRIX[[3]]+
@@ -135,10 +136,11 @@ getbeta = function(R0t,p_age,CONTACTMATRIX = contacts_cambodia)
   
   fIp = fIc = 1
   fIa = 0.5
-  d_P = 1.5;                                               # Mean duration of infectiousness (days)
-  d_C = 4
-  d_A = 5.5 ;
-  
+  d_P = dparams[[2]];                                               # Mean duration of infectiousness (days)
+  d_C = dparams[[3]]
+  d_A = d_P+d_C ;
+  rho = dparams[[7]]
+  u = dparams[[8]]
   gamma = 1-exp(-1/(rho * (fIp * d_P + fIc * d_C) + (1 - rho) * fIa * d_A))
   
   
@@ -147,10 +149,18 @@ getbeta = function(R0t,p_age,CONTACTMATRIX = contacts_cambodia)
     for(i in 1:n)
     {
       for(j in 1:n){
-        M[i,j] = C[i,j]*p_age[i]/p_age[j]
+        M[i,j] = C[i,j]*p_age[i]/p_age[j]*u[i]/gamma[j]
+        # M[i,j] = C[i,j]*p_age[i]*u[i]/gamma
       }
     }
-    eig = eigen(M*1/gamma)
+    # for(i in 1:n)
+    # {
+    #   
+    #     # M[i,j] = C[i,j]*p_age[i]/p_age[j]
+    #     M[i,] = C[i,]*p_age[i]*u[i]/gamma
+    #   
+    # }
+    eig = eigen(M)
     # beta = R0t*gamma/max(Re(eig$values))  # reverse engineer beta from the R0 and gamma 
     beta = R0t/max(Re(eig$values))  # reverse engineer beta from the R0 and gamma 
     
@@ -174,7 +184,7 @@ cm_delay_gamma = function(mu, shape, t_max, t_step)
 }
 
 
-simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of intervention
+simulateOutbreakSEIcIscRBCZ = function(beta,dparams,INTERVENTION, #type of intervention
                                        SECOND_INTERVENTION, THIRD_INTERVENTION,
                                        dateStart, # date we start simulation 
                                        dateStartIntervention, # date we start intervention
@@ -209,16 +219,30 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
   
   
   # Specify epi info
+  fIp = fIc = 1
+  fIa = 0.5
+  d_E = dparams[[1]]
+  d_P = dparams[[2]];                                               # Mean duration of infectiousness (days)
+  d_C = dparams[[3]]
+  d_A = d_P+d_C ;
   
-  d_E = 4;   	                                             # Mean latent period (days) from Backer, et al (2020)
-  d_P = 1.5;                                               # Mean duration of infectiousness (days)
-  d_C = 4
-  d_A = 5.5 ;
+  d_H = dparams[[4]];# Median time from symptom onset to hospital admission Wang et al 2020 and Linton et al 2020
+  d_I = dparams[[5]] # Duration of stay in ICU
+  d_B = dparams[[6]]
+  
+  rho = dparams[[7]]
+  u = dparams[[8]]
+  delta = dparams[[9]]
+  
+  # d_E = 4;   	                                             # Mean latent period (days) from Backer, et al (2020)
+  # d_P = 1.5;                                               # Mean duration of infectiousness (days)
+  # d_C = 4
+  # d_A = 5.5 ;
   
   # resource model
-  d_H = 7;# Median time from symptom onset to hospital admission Wang et al 2020 and Linton et al 2020
-  d_I = 10 # Duration of stay in ICU
-  d_B = 8 # Duration of stay in Bed
+  # d_H = 7;# Median time from symptom onset to hospital admission Wang et al 2020 and Linton et al 2020
+  # d_I = 10 # Duration of stay in ICU
+  # d_B = 8 # Duration of stay in Bed
   
   theta = 1-exp(-1/d_P);                                      # rate from Ip to Ic
   gamma_Ic = 1-exp(-1/d_C);                                   # rate from Ic to R
@@ -229,8 +253,8 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
   
 #  delta = 0.2;                                                       # proportion of clinical cases that develop severe signs
   
-  epsilon = 0.3                                                    # Proportion of severe cases that need ICU Wang et al
-  
+  # epsilon = 0.3                                                    # Proportion of severe cases that need ICU Wang et al
+  epsilon = c(rep(0.05,7),0.053,0.06,0.075,0.104,0.149,0.224,0.307)
   dt = 1;                                                        # Time step (days)
   tmax = 500;                                                    # Time horizon (days) 366 days in 2020 cause of leap year
   numSteps = tmax/dt;  	                                         # Total number of simulation time steps
@@ -276,7 +300,8 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
   rate_ICU = cm_delay_gamma(d_I,d_I,n_col_sub,dt)$p
   rate_BED = cm_delay_gamma(d_B,d_B,n_col_sub,dt)$p
     # # Create dummy state variables for a deterministic formulation to cross-compare
-    # FA_det = BED_det = ICU_det = Z_det = cum_Ic = cum_FA = cum_BED = cum_ICU = array(0,c(numSteps,length(pop$p_age)))
+    # FA_det = BED_det = ICU_det = Z_det = cum_Ic = cum_FA = 
+  cum_BED = cum_ICU = array(0,c(numSteps,length(pop$p_age)))
     # FA_det[1,] = 0
   cum_FA = cum_ICU = array(0,c(numSteps,length(pop$p_age)))
     # BED_det[1,] = 0
@@ -419,18 +444,32 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
     fIa = 0.5
 
    # beta = rho*u+(1-rho)*u*fIa = u*fIa + (rho-rho*fIa)*u = u*(fIa+rho(1-fIa)) i.e. u=beta/(fIa+rho(1-fIa))
-    u = rep(beta,n_age)
+    # u = rep(beta,n_age); if assuming a constant susceptibility
     # u=beta/(fIa+rho*(1-fIa)) # beta estimated for 'typical infectious' individuals which is average of rho Clinical and 1-rho asymptomatic who has 0.5 infectiousness
-    lambda[stepIndex,] = as.numeric(u)*(as.matrix(C)%*%as.matrix((fIc*Ic[stepIndex,]+fIp*Ip[stepIndex,])/N_age) + fIa*as.matrix(Ia[stepIndex,]/N_age));
+    lambda[stepIndex,] = as.numeric(beta)*(as.matrix(C)%*%(as.matrix((fIc*Ic[stepIndex,]+fIp*Ip[stepIndex,])/N_age) + fIa*as.matrix(Ia[stepIndex,]/N_age)));
+    # lambda[stepIndex,] = as.numeric(beta*u)*(as.matrix(C)%*%as.matrix((fIc*Ic[stepIndex,]+fIp*Ip[stepIndex,])/sum(N_age) + fIa*as.matrix(Ia[stepIndex,]/sum(N_age))));
     
    
       
       y = rho
+    gamma = 1-exp(-1/(rho * (fIp * d_P + fIc * d_C) + (1 - rho) * fIa * d_A))
   if(calculate_R==1)
   {
-    ngm = u*t(t(C) * (
-      y * (fIp * d_P + fIc * d_C) +  #fIp = rep(1, n_groups), fIs = rep(1, n_groups),fIa = rep(0.5, n_groups), relative infectiousness
-        (1 - y) * fIa * d_A))
+    # ngm = u*beta*pop$p_age*t(t(C) * (
+    #   y * (fIp * d_P + fIc * d_C) +  #fIp = rep(1, n_groups), fIs = rep(1, n_groups),fIa = rep(0.5, n_groups), relative infectiousness
+    #     (1 - y) * fIa * d_A))
+    M = C
+    for(i in 1:nrow(M))
+    {
+      for(j in 1:ncol(M))
+      {
+        M[i,j] = C[i,j]*pop$p_age[i]/pop$p_age[j]*u[i]/gamma[j]
+      }
+        # M[i,j] = C[i,j]*p_age[i]/p_age[j]
+        
+      
+    }
+    ngm = beta*(M) 
     
     R_ef[stepIndex] = abs(eigen(ngm)$values[1])
   }
@@ -443,7 +482,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
     # TODO: Calculate R0 based on the beta and current contact
     
     # Here update the number of individuals in each state variable for disease dynamic model
-    numStoE   = lambda[stepIndex,]*S[stepIndex,]*dt;                  # S to E
+    numStoE   = u*lambda[stepIndex,]*S[stepIndex,]*dt;                  # S to E
     numEtoIp  = alpha*rho*E[stepIndex,]*dt;                           # E to Ip
     numEtoIa = alpha*(1-rho)*E[stepIndex,]*dt;                        # E to Ia
     numIptoIc = theta*Ip[stepIndex,]*dt;                              # Ip to Ic
@@ -466,10 +505,11 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
           # Update F_sub
           num_new_BandC = F_sub[[age]][stepIndex,1] # coming out from F, and admission to hospital = number of new hospital admission
           new_FA[stepIndex+1,age] = num_new_BandC
-          numFtoC = rbinom(1, num_new_BandC, epsilon*dt) # Individuals coming out of F into ICU
+          numFtoC = rbinom(1, num_new_BandC, epsilon[age]*dt) # Individuals coming out of F into ICU
           numFtoB = num_new_BandC - numFtoC; # Individuals coming out of F into BED
           cum_ICU[stepIndex+1,age] = cum_ICU[stepIndex,age] + numFtoC #culumulative number of individuals that require ICU
-          # They will be distributed to different waiting time for discharge
+          cum_BED[stepIndex+1,age] = cum_BED[stepIndex,age] + numFtoB
+           # They will be distributed to different waiting time for discharge
           # Before that update the F_sub
           # Allocate numIptoF[[age]] if it's >0
           F_sub[[age]][stepIndex+1,] <- c(F_sub[[age]][stepIndex,2:(n_col_sub+1)], 0 ) # slide the sub-blocks
@@ -509,7 +549,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
     # cum_Ic[stepIndex+1,] = cum_Ic[stepIndex,] + numEtoIc
     cum_FA[stepIndex+1,] = cum_FA[stepIndex,] + numIptoF # individuals comeing into F (severe), which waiting for hospitalization
     
-    # cum_BED[stepIndex+1,] = cum_BED[stepIndex,] + numFtoB
+     
    
     
     # # For a deterministic formulation to cross-compare
@@ -542,7 +582,7 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
     # Z_det[stepIndex+1,]   = Z_det[stepIndex,]+numBtoZ_det+numCtoZ_det;
     # 
     incidence[stepIndex+1,] = (numEtoIa+numEtoIp)/dt;
-    clinical_incidence[stepIndex+1,] = (numEtoIp)/dt;
+    clinical_incidence[stepIndex+1,] = (numIptoIc)/dt;
     subclinical[stepIndex+1,] = numEtoIa/dt;
     time[stepIndex+1] = time[stepIndex]+dt;
 
@@ -558,8 +598,8 @@ simulateOutbreakSEIcIscRBCZ = function(beta,rho,delta,INTERVENTION, #type of int
                 # # BED_det= BED_det, ICU_det=ICU_det,
                 # # cum_Ic = cum_Ic, 
                 # cum_FA = cum_FA, 
-                # #cum_BED = cum_BED, 
-                # cum_ICU = cum_ICU,
+                cum_BED = cum_BED, 
+                 cum_ICU = cum_ICU,
                 new_FA=new_FA,
                 #new_DIS=new_DIS,
                  incidence = incidence,

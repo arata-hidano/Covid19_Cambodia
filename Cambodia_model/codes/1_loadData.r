@@ -12,6 +12,7 @@ loadR0posterior =TRUE
 ProvinceModel = TRUE
 AllProvince = TRUE
 num_province <- 3
+
 ## load data: Population age structure and Contact matrices
 
 # 1) population data for whole Cambodia, rural and urban. Combine data. 
@@ -47,6 +48,11 @@ if(ProvinceModel)
     rural_vector = c(rural_vector,prov_urban_rural[prov_urban_rural$short_name == prov_name[i],]$pop_rural)
     
   }
+  # temsum = array(0,16)
+  # for(i in 1:25)
+  # {
+  #   temsum = temsum + tem_structure[[i]]$popage
+  # }
   names(tem_structure) = prov_name
   # No data available for Tbong Khmum, assume val similar to Kampong Cham
   rural_vector[25] = 0.930
@@ -103,24 +109,40 @@ if(loadContactMatrices)
   #load(paste0('data/pp_65.rdata')) # don't use Phnom Penh mixing anymore - replace by Urban contact as the sample size being small
   # contacts_pp <- phnom_penh # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
   # rm(phnom_penh)
+  if(synthetic==0)
+  {
+    # Urban
+    load(paste0('data/urban_emp_weighted.rdata'))
+    contacts_urban <- urban1 # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
+    contact_cambodia[[1]] <- contacts_urban
+    contact_cambodia[[2]] <- contacts_urban
+    # Rural
+    load(paste0('data/rural_emp_weighted.rdata'))
+    contacts_rural <- rural1 # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
+    contact_cambodia[[3]] <- contacts_rural
+    # Overall
+    load(paste0('data/all_emp_weighted.rdata'))
+    contacts_all <- overall # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
+    contact_cambodia[[4]] <- contacts_all
+    # # Rural pop with Urban contact
+    # contact_cambodia[[4]] <- contacts_urban
+    
+    rm(contacts_rural,contacts_urban,urban1,rural1)
+  }
+  else
+  {
+    load(paste0('data/prem_mats.rdata'))
+    prem2 = vector('list',length(prem1))
+    for(length_list in 1:length(prem1))
+    {
+      prem2[[length_list]] = as.matrix(prem1[[length_list]])
+    }
+    contact_cambodia[[1]] <- prem2
+    contact_cambodia[[2]] <- prem2
+    contact_cambodia[[3]] <- prem2
+    contact_cambodia[[4]] <- prem2
+  }
   
-  # Urban
-  load(paste0('data/urban_emp_weighted.rdata'))
-  contacts_urban <- urban1 # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
-  contact_cambodia[[1]] <- contacts_urban
-  contact_cambodia[[2]] <- contacts_urban
-  # Rural
-  load(paste0('data/rural_emp_weighted.rdata'))
-  contacts_rural <- rural1 # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
-  contact_cambodia[[3]] <- contacts_rural
-  # Overall
-  load(paste0('data/all_emp_weighted.rdata'))
-  contacts_all <- overall # normalize.contact.matrices(contacts_china,wuhanpop$popage, make.sym=T)
-  contact_cambodia[[4]] <- contacts_all
-  # # Rural pop with Urban contact
-  # contact_cambodia[[4]] <- contacts_urban
- 
-  rm(contacts_rural,contacts_urban,urban1,rural1)
 }
 
 # Check age category and adjust
@@ -245,13 +267,23 @@ delta = cambodia_delta$delta
 rm(loadContactMatrices,loadPopData,cambodia_delta)
 
 # Load health resource data ICU and BED
-resource_data = read.csv('data/cambodia_health_resource.csv',as.is = TRUE)
-ICU = c(resource_data[,3],17.4)
-BED = c(resource_data[,2],752.6)
+# resource_data = read.csv('data/cambodia_health_resource.csv',as.is = TRUE)
+# use 2019 projections
+resource_data = read.csv('data/cambodia_health_resource_2019.csv',as.is = TRUE)
+resource_data_rnam = resource_data[,1]
+resource_data_extract = apply(resource_data[,-1],c(1,2), round)
+resource_data = cbind.data.frame(resource_data_rnam,resource_data_extract)
+# Extrapolate to Thbong Khmum - assume everything is proportional to Khampong cham
+r_TK = sum(cambodia_pop[[25]]$popage)/sum(cambodia_pop[[3]]$popage)
+ICU = c(resource_data[,3],resource_data[3,3]*r_TK)
+BED = c(resource_data[,2],resource_data[3,2]*r_TK)
+Dr = c(resource_data[,4],resource_data[3,4]*r_TK)
+nurse = c(resource_data[,5],resource_data[3,5]*r_TK)
+ventilators = c(resource_data[,7]+resource_data[,8],(resource_data[3,7]+resource_data[3,8])*r_TK)
 if(one_country_model==1)
 {
   ICU = c(ICU,sum(ICU),sum(ICU))
   BED = c(BED,sum(BED),sum(BED))
 }
-resource_list = list(ICU,BED) #use the same value of Kampong Cham for last prov
+resource_list = list(ICU,BED, Dr, nurse,ventilators) #use the same value of Kampong Cham for last prov
 
