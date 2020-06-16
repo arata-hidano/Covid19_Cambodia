@@ -24,16 +24,25 @@ if(dummy==1)
   trigger_combination = cbind(c(0.03,0.03,0.1,0.1),c(0.3,0.4,0.3,0.4))
   
   # trigger_combination = cbind(c(0.01,0.01,0.02,0.02),c(0.3,0.4,0.3,0.4))
-  nsim=100
+  nsim=50
 }
 trigger_name = paste(unique(c(trigger_combination[,1],trigger_combination[,2])),collapse="_")
 # 
 # Specify the intervention after Combined
 # interv2 = c(9,10)
-interv1 = 14
-interv2 = 10
-# interv3 = c(13,14)
-interv3 = 14
+if(trigger_model==0)
+{
+  interv1 = 1
+  interv2 = c(1:7,9,10)
+  interv3 = 1
+}else
+{
+  interv1 = 14
+  interv2 = 10
+  # interv3 = c(13,14)
+  interv3 = 14
+}
+
 # Specify if changing the strict intervention from teh second trigger (implement combined as a first trigger)
 change_relaxed_intervention = 0
 # Specify if changing susceptibility across age
@@ -46,12 +55,19 @@ cores<-detectCores()
 core_to_use <- cores
 set.seed(123)
 
-R0est = rnorm(nsim, 2.68, 0.57)
-initialI = 0.0002
+# R0est = rnorm(nsim, 2.68, 0.57)
+# R0est = rnorm(nsim, 2.5, 0.5)
+# R0est = c(2.5,3.52)
+# R0est = 3.52
+
+# initialI = 0.0002
 # rho is the proportion of clinical among infected
 nrow_matrix = nrow(cambodia_pop[[1]])
 # rho <- c(rep(0.2,4),rep(0.8,nrow_matrix-4))
 
+#====PARAMETER===============================================================================#
+R0est =qnorm(seq(1/50,1-1/50,length.out=50),mean=2.5,sd=0.5)
+# clinical fraction
 rho <- c(0.4,0.4,0.25,0.25,0.37,0.37,0.42,0.42,0.51,0.51,0.59,0.59,0.72,0.73)
 if(suscep_vary==1)
 {
@@ -61,18 +77,30 @@ if(suscep_vary==1)
   suscep = c(rep(1,nrow_matrix))
 }
 dparams = vector('list',9)
-dparams[[1]] = 3 # d_E
-dparams[[2]] = 2.1 # d_P                                              # Mean duration of infectiousness (days)
-dparams[[3]] = 2.9 # d_C 
+dparams[[1]] = 4 # d_E
+dparams[[2]] = 1.5 # d_P                                              # Mean duration of infectiousness (days)
+dparams[[3]] = 3.5 # d_C 
 
 
 dparams[[4]] = 7 #d_H;# Median time from symptom onset to hospital admission Wang et al 2020 and Linton et al 2020
-dparams[[5]] = 10 #d_I# Duration of stay in ICU
-dparams[[6]] = 8 # d_B
+dparams[[5]] = 8.2 #d_I# Duration of stay in ICU
+dparams[[6]] = 6.4 # d_B
 
 dparams[[7]] = rho
 dparams[[8]] = suscep
-dparams[[9]] = delta
+dparams[[9]] = delta # 0.001 0.001 0.006 0.006 0.014 0.014 0.028 0.028 0.043 0.043 0.082 0.082 0.146 0.240
+
+# episilon: ICU ratio
+#  epsilon = c(rep(0.05,6),0.052,0.052,0.068,0.068,0.127,0.127,0.224,0.401)
+
+# Define intervention period - this is not used if modelling trigger intervention
+# The first element is for unmitigated: should be later than simulation period
+dateStartIntervention = c('2022-03-01',rep('2020-04-08',length(intervention_scenario)-1))  
+# firster the intervention is, the higher chance the second peak appears
+months_Intervention = 4
+
+#=========================================================================================#
+
 
 #n_province <- 3 # for now Phnom Penh, urban, rural, rural with urban contact
 n_province = length(contact_cambodia)
@@ -85,10 +113,7 @@ intervention_scenario = c("Baseline","School","Social_distance1","Social_distanc
 # change_name_rev_intervention_scenario_with_linechange <- c("Lockdown","Combined","Self isolation","Elderly \n shielding","Reduce\n home visitors",
 #                                                            "Partial public \n space closure","Partial office \n closure","School\n closure","Baseline")
 
-# Define intervention period - this is not used if modelling trigger intervention
-dateStartIntervention = c('2022-03-01',rep('2020-04-13',length(intervention_scenario)-1))  
-# firster the intervention is, the higher chance the second peak appears
-months_Intervention = 3
+
 
 # Determine the scenario to test
 sim_comb = c()
@@ -131,13 +156,19 @@ for(i in 1:nsim)
       # scenario2 = 9
       for(scenario3 in interv3)
       {
-        
+      if(trigger_model==1)
+      {
         for(set in 1:nrow(trigger_combination))
         {
           
-            sim_comb = rbind(sim_comb,c(i,scenario1,scenario2,scenario3,trigger_combination[set,1],trigger_combination[set,2]))
+          sim_comb = rbind(sim_comb,c(i,scenario1,scenario2,scenario3,trigger_combination[set,1],trigger_combination[set,2]))
           
         }
+      }else
+      {
+        sim_comb = rbind(sim_comb,c(i,scenario1,scenario2,scenario3,0,0))
+      }
+       
         
       }
     } 
@@ -156,6 +187,7 @@ if(provincial_trigger==0)
   ICU_cap = resource_list[[1]]
   BED_cap = resource_list[[2]]
 }
+# move_prop = array(0,c(25,25))
 # max_capacity = ICU_cap + BED_cap
 # available_bed = max_capacity*prop_bed_available
 #Create cluster with desired number of cores, leave one open for the machine         
@@ -184,17 +216,21 @@ multi_p <- foreach(i=1:nrow(sim_comb),.export = c("cm_delay_gamma",
     # sink("Erro_log.txt", append=TRUE)
     # cat(paste("Start",i,"\n"))
     # sink()
-    result = simulateOutbreakSEIcIscRBCZ_simultaneous(beta,dparams ,
+    result = simulateOutbreakSEIcIscRBCZ_simultaneous(beta,dparams ,move_prop,
                                         FIRST_INTERVENTION=intervention_scenario[scenario1],
                                          SECOND_INTERVENTION = intervention_scenario[scenario2],
                                          THIRD_INTERVENTION = intervention_scenario[scenario3],
                                         FOURTH_INTERVENTION = intervention_scenario[scenario4],
                                          dateStart=as.Date('2020-03-01'),
+                                        dateStartIntervention = as.Date(dateStartIntervention[scenario2]),
+                                        months_Intervention = months_Intervention,
                                          cambodia_pop = cambodia_pop,
                                          contacts_cambodia = contact_cambodia,
                                          pInfected=initialI,
                                          prov_name,open_p,threshold_em,threshold_re,ICU_cap, BED_cap,
-                                        change_relaxed_intervention=change_relaxed_intervention,provincial_trigger=provincial_trigger)
+                                        change_relaxed_intervention=change_relaxed_intervention,
+                                        trigger_model = trigger_model,
+                                        provincial_trigger=provincial_trigger)
     
   }
 end_time <- Sys.time()
@@ -203,6 +239,31 @@ dat_nam = paste0(Sys.Date(),"_",trigger_name)
 # save(multi_p,file="E:/OneDrive/Documents/Postdoc_LSHTM/Covid/Modeling/Model/codes/Test_run_project/Covid19_Cambodia/Cambodia_model/Trigger_National_homogenous_model1.Rdata")
 
 if(dummy==0)
+{
+if(trigger_model==0)
+{
+  if(nsim==100)
+  {
+    if(physical==0)
+    {
+      save(multi_p,file="No_trigger_model_metapop100.Rdata")
+    }else
+    {
+      save(multi_p,file="No_trigger_model_metapop_physical100.Rdata")
+    }
+  }else
+  {
+    if(physical==0)
+    {
+      save(multi_p,file="No_trigger_model_metapop.Rdata")
+    }else
+    {
+      save(multi_p,file="No_trigger_model_metapop_physical.Rdata")
+    }
+  }
+ 
+  
+}else
 {
   if(suscep_vary==1)
   {
@@ -309,6 +370,8 @@ if(dummy==0)
       
     }
   }
+}
+ 
 
   
 }else
